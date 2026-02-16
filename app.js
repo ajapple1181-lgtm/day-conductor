@@ -1437,3 +1437,6 @@ function jumpToDayTop(date){
   if (!lifeDate.value) lifeDate.value = state.ui.lifeDate || today;
   if (!studyDate.value) studyDate.value = state.ui.studyDate || today;
 })();
+
+// 起動時に確認モーダルを強制的に閉じる
+try { closeModal(); } catch(e) {}
