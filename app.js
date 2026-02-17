@@ -1,18 +1,37 @@
 "use strict";
 
 /*
-Day Conductor v11
-今回の変更：
-- 勉強タスクに「1範囲あたり（分）（任意）」を追加
-  - 入力あり：見積（分）＝(1範囲あたり)×(範囲数)
-  - 未入力：見積（分）は手入力の値をそのまま使う（自動上書きしない）
+Day Conductor v12
+
+変更点（要約）
+- 就寝/起床の扱い
+  - 就寝が 00:00〜05:59 の場合、その日の「次の日」に就寝を配置
+  - 起床は「就寝から最大9時間以内」に自動調整（予定上）
+  - 起床を小さな「起床」ブロック（5分）として追加
+  - ルーティンの跨ぎ（前日から当日へのはみ出し）を一般化して表示
+
+- 生活：一覧/タイムラインのタップ編集を無効化（生活のみ）
+- 勉強：タイムラインの勉強ブロックタップで「実行（運転）モード」
+  - 残り時間カウントダウン（一時停止で停止）
+  - 範囲一覧をタップで完了/復活
+  - 進捗 x/y
+  - 全部完了 → 自動で「到着」ダイアログ
+  - 左上HUDに科目名＋残り時間（タスク中）
+
+- 自動組み立て：perRangeMin（1範囲あたり分）があるタスクは「範囲ごとに分割して配置」
+  → 移動/食事/風呂などの生活ブロックで途切れても、次の空きに続きが入る
 */
 
 window.addEventListener("DOMContentLoaded", () => {
-  const LS_KEY = "day_conductor_v11";
-  const LEGACY_KEYS = ["day_conductor_v10"];
+  const LS_KEY = "day_conductor_v12";
+  const LEGACY_KEYS = ["day_conductor_v11", "day_conductor_v10"];
   const DAY_MIN = 1440;
   const PX_PER_MIN = 1.25;
+
+  // 就寝がこの時刻より早い場合は「次の日」に就寝を置く（= 日付変更後として扱う）
+  const SLEEP_NEXT_DAY_THRESHOLD_MIN = 6 * 60; // 00:00〜05:59
+  const MAX_SLEEP_HOURS = 9;
+  const WAKE_MARK_MIN = 5; // 起床ブロックの長さ（分）
 
   /* ===== Utils ===== */
   const $ = (q) => document.querySelector(q);
@@ -46,10 +65,18 @@ window.addEventListener("DOMContentLoaded", () => {
     return `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
   };
 
-  const setHidden = (el, v) => {
-    if (el) el.hidden = !!v;
-  };
+  const setHidden = (el, v) => { if (el) el.hidden = !!v; };
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  const fmtMS = (sec) => {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    const hh = Math.floor(m / 60);
+    const mm = m % 60;
+    if (hh > 0) return `${hh}:${pad2(mm)}:${pad2(s)}`;
+    return `${mm}:${pad2(s)}`;
+  };
 
   /* ===== Options ===== */
   const CATEGORY_COLORS = {
@@ -107,8 +134,8 @@ window.addEventListener("DOMContentLoaded", () => {
   /* ===== Routine defaults (per date) ===== */
   const routineDefaultForDate = (date) => {
     const d = parseDate(date) || new Date();
-    const day = d.getDay(); // 0..6
-    const isTT = (day === 2 || day === 4);
+    const day = d.getDay();
+    const isTT = (day === 2 || day === 4); // 火木
     return {
       schoolOn: "on",
       commuteAMStart: "07:30",
@@ -132,10 +159,23 @@ window.addEventListener("DOMContentLoaded", () => {
   const freshState = () => {
     const today = fmtDate(new Date());
     return {
-      routineByDate: {}, // { [date]: routine }
-      lifeByDate: {},    // { [date]: [{id,type,startMin,endMin}] } 追加分のみ
-      studyByDate: {},   // { [date]: studyTasks[] }
-      planCache: {},     // { [date]: { blocks:[...], overflow:[ids] } }
+      routineByDate: {},
+      lifeByDate: {},
+      studyByDate: {},
+      planCache: {},
+
+      // 勉強の進捗/タイマー（タスクID単位）
+      progressByTask: {
+        // [taskId]: { doneSteps: boolean[], spentSec: number }
+      },
+
+      // 実行中タスク（1つだけ）
+      runner: {
+        activeTaskId: null,
+        isRunning: false,
+        lastTick: 0
+      },
+
       ui: {
         activeTab: "life",
         lifeDate: today,
@@ -156,6 +196,8 @@ window.addEventListener("DOMContentLoaded", () => {
       lifeByDate: s.lifeByDate || {},
       studyByDate: s.studyByDate || {},
       planCache: s.planCache || {},
+      progressByTask: s.progressByTask || {},
+      runner: { ...base.runner, ...(s.runner || {}) },
       ui: { ...base.ui, ...(s.ui || {}) }
     };
   };
@@ -236,7 +278,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const studyTaskFree = $("#studyTaskFree");
   const btnAddRange = $("#btnAddRange");
   const rangesList = $("#rangesList");
-  const studyPerRangeMin = $("#studyPerRangeMin"); // v11 追加
+  const studyPerRangeMin = $("#studyPerRangeMin");
   const studyMin = $("#studyMin");
   const studyDeadline = $("#studyDeadline");
   const btnAddStudy = $("#btnAddStudy");
@@ -262,16 +304,36 @@ window.addEventListener("DOMContentLoaded", () => {
     lifeDate, routineSchoolOn, routineBathOn, routineSleepStart, routineWake,
     lifeType, btnAddLife,
     studyDate, studyCategory, rangesList, btnAddStudy, btnAutoBuild,
-    studyPerRangeMin, // v11 必須
+    studyPerRangeMin,
     timeline, editor, editorCancel
   ];
   if (required.some(x => !x)) {
     const box = document.createElement("div");
     box.style.cssText = "position:fixed;left:10px;right:10px;bottom:10px;z-index:9999;background:#300;color:#fff;padding:10px;border-radius:12px;font:12px/1.4 system-ui;";
-    box.textContent = "読み込みエラー：index.html 側に「studyPerRangeMin」がありません。勉強フォームに「1範囲あたり（分）」の入力欄を追加して、v=を上げてください。";
+    box.textContent = "読み込みエラー：index.html が v12 の要素と一致していません。";
     document.body.appendChild(box);
     return;
   }
+
+  /* ===== HUD (左上：科目名＋残り) ===== */
+  const hud = document.createElement("button");
+  hud.type = "button";
+  hud.id = "hud";
+  hud.innerHTML = `<span class="hudSubj"></span><span class="hudTime"></span>`;
+  document.body.appendChild(hud);
+
+  const hudSubj = hud.querySelector(".hudSubj");
+  const hudTime = hud.querySelector(".hudTime");
+
+  const setHUDVisible = (v) => {
+    hud.style.display = v ? "inline-flex" : "none";
+  };
+
+  hud.addEventListener("click", () => {
+    const id = state.runner.activeTaskId;
+    if (!id) return;
+    openRunner(id);
+  });
 
   /* ===== Tabs ===== */
   const setTab = (name) => {
@@ -304,19 +366,15 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function initSelects() {
-    // lifeType
     lifeType.innerHTML = "";
     LIFE_TYPES.forEach(x => addOpt(lifeType, x, x));
 
-    // studyCategory
     studyCategory.innerHTML = "";
     addOpt(studyCategory, "", "—");
     Object.keys(SUBJECTS_BY_CATEGORY).forEach(cat => addOpt(studyCategory, cat, cat));
 
-    // range row
     if (rangesList.children.length === 0) addRangeRow();
 
-    // return2
     fillReturn2Options();
   }
 
@@ -331,7 +389,6 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   // start:11(2-3) end:15(3) => 11(2-3),12,13,14,15(3)
-  // start==end => 1個だけ
   function computeRangeSteps(ranges) {
     const out = [];
     for (const r of ranges) {
@@ -360,7 +417,6 @@ window.addEventListener("DOMContentLoaded", () => {
     return out;
   }
 
-  // v11: perRangeMin が入っているときだけ見積を自動計算
   function computeDurationFromPerRange(perRangeMin, ranges) {
     const per = Number.isFinite(perRangeMin) ? perRangeMin : null;
     if (!per || per <= 0) return null;
@@ -375,7 +431,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     for (const t of arr) {
       const per = t.perRangeMin;
-      if (!per) continue; // 未指定なら手入力の durationMin を尊重
+      if (!per) continue;
       const auto = computeDurationFromPerRange(per, t.ranges || []);
       if (auto != null && t.durationMin !== auto) {
         t.durationMin = auto;
@@ -442,7 +498,6 @@ window.addEventListener("DOMContentLoaded", () => {
   function splitCrossMidnight(baseDate, startMin, endMin) {
     let s = startMin;
     let e = endMin;
-
     if (e <= s) e += 1440;
 
     const d0 = baseDate;
@@ -462,7 +517,7 @@ window.addEventListener("DOMContentLoaded", () => {
     return parts;
   }
 
-  // startMin が負になっても扱えるように baseDate をずらす
+  // startMin が負でも扱えるように baseDate をずらす
   function splitWithShift(baseDate, startMin, endMin) {
     let d = baseDate;
     let s = startMin;
@@ -491,21 +546,38 @@ window.addEventListener("DOMContentLoaded", () => {
     return false;
   }
 
+  /* ===== Sleep math (v12) ===== */
+  function sleepBaseDateForRoutineDate(date, sleepStartMin) {
+    if (sleepStartMin == null) return date;
+    // 00:00〜05:59 → 次の日の就寝
+    if (sleepStartMin < SLEEP_NEXT_DAY_THRESHOLD_MIN) return addDays(date, 1);
+    return date;
+  }
+
+  function computeWakeDiffMin(sleepStartMin, wakeMin) {
+    // wakeMin は入力時刻（0..1439）
+    let diff = ((wakeMin - sleepStartMin) + 1440) % 1440;
+    if (diff <= 0) diff += 1440;
+    const max = MAX_SLEEP_HOURS * 60;
+    if (diff > max) diff = max; // 予定上は最大9hに抑える
+    return diff;
+  }
+
   /* ===== Build routine blocks ===== */
-  function routineBlocksForDate(date) {
+  function routineBlocksForRoutineDate(date) {
     const r = getRoutine(date);
     const out = [];
 
     const schoolOn = r.schoolOn === "on";
 
-    // morning commute
+    // morning commute (same routine date)
     if (schoolOn) {
       const a = minutesOf(r.commuteAMStart);
       const mins = clamp(parseInt(r.commuteAMMin || "60", 10), 1, 1000);
       if (a != null) {
         out.push({
           kind: "routine",
-          sourceId: "routine.commuteAM",
+          sourceId: `routine.${date}.commuteAM`,
           date,
           label: "移動",
           color: cssVar("--gray"),
@@ -521,7 +593,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (s != null && e != null) {
         out.push({
           kind: "routine",
-          sourceId: "routine.school",
+          sourceId: `routine.${date}.school`,
           date,
           label: "授業",
           color: cssVar("--gray"),
@@ -539,7 +611,7 @@ window.addEventListener("DOMContentLoaded", () => {
         for (const p of parts) {
           out.push({
             kind: "routine",
-            sourceId: "routine.club",
+            sourceId: `routine.${date}.club`,
             date: p.date,
             startMin: p.startMin,
             endMin: p.endMin,
@@ -562,7 +634,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (r.returnMode === "60") {
       out.push({
         kind: "routine",
-        sourceId: "routine.return60",
+        sourceId: `routine.${date}.return60`,
         date,
         label: "移動",
         color: cssVar("--gray"),
@@ -571,7 +643,7 @@ window.addEventListener("DOMContentLoaded", () => {
     } else {
       out.push({
         kind: "routine",
-        sourceId: "routine.return30_1",
+        sourceId: `routine.${date}.return30_1`,
         date,
         label: "移動",
         color: cssVar("--gray"),
@@ -582,7 +654,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (t2 != null) {
         out.push({
           kind: "routine",
-          sourceId: "routine.return30_2",
+          sourceId: `routine.${date}.return30_2`,
           date,
           label: "移動",
           color: cssVar("--gray"),
@@ -590,7 +662,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
         out.push({
           kind: "routine",
-          sourceId: "routine.dinner",
+          sourceId: `routine.${date}.dinner`,
           date,
           label: "食事",
           color: cssVar("--gray"),
@@ -599,21 +671,23 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // bath -> prep -> sleep (fixed order, based on sleepStart)
-    const slStart = minutesOf(r.sleepStart);
-    const wake = minutesOf(r.wakeTime);
+    // bath -> prep -> sleep (relative to sleepStart base date)
+    const slStartMin = minutesOf(r.sleepStart);
+    const wakeMin = minutesOf(r.wakeTime);
     const prepMin = clamp(parseInt(r.prepMin || "15", 10), 1, 600);
     const bathMin = clamp(parseInt(r.bathMin || "60", 10), 1, 600);
     const bathOn = r.bathOn === "on";
 
-    if (slStart != null) {
-      // prep
-      const prepEnd = slStart;
-      const prepStart = slStart - prepMin;
-      for (const p of splitWithShift(date, prepStart, prepEnd)) {
+    if (slStartMin != null) {
+      const baseForSleep = sleepBaseDateForRoutineDate(date, slStartMin);
+
+      // prep ends at sleepStart
+      const prepEnd = slStartMin;
+      const prepStart = slStartMin - prepMin;
+      for (const p of splitWithShift(baseForSleep, prepStart, prepEnd)) {
         out.push({
           kind: "routine",
-          sourceId: "routine.prep",
+          sourceId: `routine.${date}.prep`,
           date: p.date,
           startMin: p.startMin,
           endMin: p.endMin,
@@ -624,14 +698,14 @@ window.addEventListener("DOMContentLoaded", () => {
         });
       }
 
-      // bath
+      // bath before prep
       if (bathOn) {
         const bathEnd = prepStart;
         const bathStart = bathEnd - bathMin;
-        for (const p of splitWithShift(date, bathStart, bathEnd)) {
+        for (const p of splitWithShift(baseForSleep, bathStart, bathEnd)) {
           out.push({
             kind: "routine",
-            sourceId: "routine.bath",
+            sourceId: `routine.${date}.bath`,
             date: p.date,
             startMin: p.startMin,
             endMin: p.endMin,
@@ -642,44 +716,40 @@ window.addEventListener("DOMContentLoaded", () => {
           });
         }
       }
-    }
 
-    // sleep (start -> wake, cross midnight ok)
-    if (slStart != null && wake != null) {
-      const wakeAbs = (wake <= slStart) ? wake + 1440 : wake;
-      const partsA = splitCrossMidnight(date, slStart, wakeAbs);
-      for (const p of partsA) {
-        out.push({
-          kind: "routine",
-          sourceId: "routine.sleep",
-          date: p.date,
-          startMin: p.startMin,
-          endMin: p.endMin,
-          contOut: p.contOut,
-          contIn: p.contIn,
-          label: p.contIn ? "就寝 続き" : "就寝",
-          color: cssVar("--gray")
-        });
-      }
-            // yesterday carry-in (use yesterday's routine)
-      const prev = addDays(date, -1);
-      const rPrev = getRoutine(prev);
-      const slPrev = minutesOf(rPrev.sleepStart);
-      const wkPrev = minutesOf(rPrev.wakeTime);
-      if (slPrev != null && wkPrev != null) {
-        const wkPrevAbs = (wkPrev <= slPrev) ? wkPrev + 1440 : wkPrev;
-        const partsB = splitCrossMidnight(prev, slPrev, wkPrevAbs);
-        for (const p of partsB) {
-          if (p.date !== date) continue;
+      // sleep + wake marker
+      if (wakeMin != null) {
+        const diff = computeWakeDiffMin(slStartMin, wakeMin);
+        const sleepEnd = slStartMin + diff;
+
+        const parts = splitCrossMidnight(baseForSleep, slStartMin, sleepEnd);
+        for (const p of parts) {
           out.push({
             kind: "routine",
-            sourceId: "routine.sleep",
+            sourceId: `routine.${date}.sleep`,
             date: p.date,
             startMin: p.startMin,
             endMin: p.endMin,
             contOut: p.contOut,
-            contIn: true,
-            label: "就寝 続き",
+            contIn: p.contIn,
+            label: "就寝",
+            color: cssVar("--gray")
+          });
+        }
+
+        // wake marker at sleep end (5 min)
+        const wakeAbsDate = baseForSleep;
+        const wakeEndMin = sleepEnd;
+        for (const p of splitWithShift(wakeAbsDate, wakeEndMin, wakeEndMin + WAKE_MARK_MIN)) {
+          out.push({
+            kind: "routine",
+            sourceId: `routine.${date}.wake`,
+            date: p.date,
+            startMin: p.startMin,
+            endMin: p.endMin,
+            contOut: p.contOut,
+            contIn: p.contIn,
+            label: "起床",
             color: cssVar("--gray")
           });
         }
@@ -693,6 +763,15 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     return out;
+  }
+
+  // 表示用：その日のルーティン（当日）＋前日ルーティンからはみ出した分も含める
+  function routineBlocksForDate(date) {
+    const prev = addDays(date, -1);
+    const a = routineBlocksForRoutineDate(date).filter(b => b.date === date);
+    const b = routineBlocksForRoutineDate(prev).filter(b => b.date === date);
+    // contIn 表示を少し強めたい時はここで付加できるが、今回はそのまま
+    return [...a, ...b].sort((x, y) => x.startMin - y.startMin);
   }
 
   /* ===== Custom life blocks ===== */
@@ -729,7 +808,7 @@ window.addEventListener("DOMContentLoaded", () => {
           endMin: p.endMin,
           contOut: p.contOut,
           contIn: true,
-          label: `${b.type} 続き`,
+          label: b.type,
           color: cssVar("--gray")
         });
       }
@@ -739,16 +818,14 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function allLifeBlocksForDate(date) {
     return [
-      ...routineBlocksForDate(date).filter(x => x.date === date),
+      ...routineBlocksForDate(date),
       ...customLifeBlocksForDate(date).filter(x => x.date === date),
     ].sort((a, b) => a.startMin - b.startMin);
   }
 
   function validateRoutine(date) {
-    const segs = routineBlocksForDate(date)
-      .filter(b => b.date === date)
-      .map(b => ({ startMin: b.startMin, endMin: b.endMin }));
-
+    // その日表示のルーティン群を重なりチェック（前日分のはみ出しも含める）
+    const segs = routineBlocksForDate(date).map(b => ({ startMin: b.startMin, endMin: b.endMin }));
     const ok = !hasOverlap(segs);
     setHidden(routineHint, ok);
     return ok;
@@ -863,10 +940,10 @@ window.addEventListener("DOMContentLoaded", () => {
     })).filter(x => x.start || x.end);
   }
 
-  // v11: perRangeMin が入っているときだけ、見積入力欄を自動で更新
+  // perRangeMin が入っているときだけ見積を自動更新
   function autoUpdateStudyMin() {
     const per = parseInt(studyPerRangeMin.value, 10);
-    if (!Number.isFinite(per) || per <= 0) return; // 未指定なら何もしない（手入力の見積を尊重）
+    if (!Number.isFinite(per) || per <= 0) return;
     const ranges = readRanges();
     const auto = computeDurationFromPerRange(per, ranges);
     if (auto != null) studyMin.value = String(auto);
@@ -936,9 +1013,13 @@ window.addEventListener("DOMContentLoaded", () => {
       return da - db;
     });
 
-    // study windows: after school/club+return commute1 to sleepStart
+    // study windows: after school/club+return commute1 to (sleepStart - prep/bath etc は生活ブロックで埋まる)
     const r = getRoutine(date);
-    const sleepStartMin = minutesOf(r.sleepStart) ?? 1410;
+    const slStartMin = minutesOf(r.sleepStart) ?? 1410;
+    const baseForSleep = sleepBaseDateForRoutineDate(date, slStartMin);
+    // 勉強できる締めは「その日の表示上の就寝開始の前」だが、就寝が次日に回るなら当日夜の上限は24:00扱いにするのが自然
+    // → ただし、実際の生活ブロック（準備/風呂/就寝）はすでに occupied に入ってるので、ここは大雑把でもOK
+    const sleepStartForThisDate = (baseForSleep === date) ? slStartMin : 1440; // 就寝が次日なら当日は24:00まで
 
     const schoolEnd = (r.schoolOn === "on") ? minutesOf(r.schoolEnd) : 0;
     const clubEnd = (r.clubOn === "on") ? (minutesOf(r.clubEnd) ?? 0) : 0;
@@ -950,14 +1031,14 @@ window.addEventListener("DOMContentLoaded", () => {
     let freeSegments = [];
 
     if (r.returnMode === "60") {
-      freeSegments = subtractSegments([{ start: baseStart, end: sleepStartMin }], occupied);
+      freeSegments = subtractSegments([{ start: baseStart, end: sleepStartForThisDate }], occupied);
     } else {
       const t2 = minutesOf(r.return2Start);
       const t2Start = (t2 == null) ? 9999 : t2;
       const afterDinner = (t2 == null) ? 9999 : (t2 + 60);
 
-      const seg1 = { start: baseStart, end: Math.min(t2Start, sleepStartMin) };
-      const seg2 = { start: Math.min(afterDinner, sleepStartMin), end: sleepStartMin };
+      const seg1 = { start: baseStart, end: Math.min(t2Start, sleepStartForThisDate) };
+      const seg2 = { start: Math.min(afterDinner, sleepStartForThisDate), end: sleepStartForThisDate };
       const bases = [];
       if (seg1.end > seg1.start) bases.push(seg1);
       if (seg2.end > seg2.start) bases.push(seg2);
@@ -965,32 +1046,78 @@ window.addEventListener("DOMContentLoaded", () => {
       freeSegments = subtractSegments(bases, occupied);
     }
 
+    // v12: perRangeMin があるタスクは「範囲単位」で分割して配置
     for (const t of tasks) {
-      const dur = clamp(parseInt(t.durationMin || "30", 10), 1, 2000);
       const deadlineMin = t.deadlineHHMM ? minutesOf(t.deadlineHHMM) : null;
 
-      let place = placeTask(freeSegments, dur, deadlineMin);
-      if (!place) place = placeTask(freeSegments, dur, null);
+      const steps = computeRangeSteps(t.ranges || []);
+      const per = Number.isFinite(t.perRangeMin) ? t.perRangeMin : null;
 
-      if (!place) {
-        overflow.push(t.id);
-        continue;
+      // ユニット化
+      let units = [];
+      if (per && per > 0 && steps.length > 0) {
+        units = steps.map((label, i) => ({
+          stepIndex: i,
+          stepLabel: label,
+          dur: per
+        }));
+      } else {
+        const dur = clamp(parseInt(t.durationMin || "30", 10), 1, 2000);
+        units = [{ stepIndex: null, stepLabel: null, dur }];
       }
 
-      freeSegments = reserve(freeSegments, place.start, place.end);
+      let placedAll = true;
 
-      blocks.push({
-        kind: "study",
-        sourceId: t.id,
-        date,
-        startMin: place.start,
-        endMin: place.end,
-        contOut: false,
-        contIn: false,
-        label: `${t.subject}｜${t.taskType}`,
-        color: CATEGORY_COLORS[t.category] || cssVar("--gray"),
-        meta: `${dur}分` + (t.deadlineHHMM ? ` / 希望 ${t.deadlineHHMM}` : ""),
-      });
+      for (let ui = 0; ui < units.length; ui++) {
+        const u = units[ui];
+        const dur = clamp(parseInt(u.dur || "30", 10), 1, 2000);
+
+        let place = placeTask(freeSegments, dur, deadlineMin);
+        if (!place) place = placeTask(freeSegments, dur, null);
+
+        if (!place) {
+          placedAll = false;
+          break;
+        }
+
+        freeSegments = reserve(freeSegments, place.start, place.end);
+
+        const isPerRange = (u.stepIndex != null);
+
+        blocks.push({
+          kind: "study",
+          // perRange ならブロックのsourceIdを分岐（タップでタスクIDを取れるように）
+          sourceId: isPerRange ? `${t.id}:${u.stepIndex}` : t.id,
+          taskId: t.id,
+          stepIndex: u.stepIndex,
+          stepLabel: u.stepLabel,
+          totalSteps: steps.length || 0,
+          date,
+          startMin: place.start,
+          endMin: place.end,
+          contOut: false,
+          contIn: false,
+          label: `${t.subject}`,
+          color: CATEGORY_COLORS[t.category] || cssVar("--gray"),
+          meta: `${t.taskType}` + (u.stepLabel ? ` / ${u.stepLabel}` : ""),
+        });
+      }
+
+      if (!placedAll) {
+        overflow.push(t.id);
+        // allowCarry があるなら「タスクごと」次の日へ（分割の途中持ち越しは今回はやらない）
+        if (allowCarry) {
+          const next = addDays(date, 1);
+          const todayArr = state.studyByDate[date] || [];
+          const move = todayArr.find(x => x.id === t.id);
+          if (move) {
+            state.studyByDate[date] = todayArr.filter(x => x.id !== t.id);
+            state.studyByDate[next] = [move, ...(state.studyByDate[next] || [])];
+            delete state.planCache[next];
+            saveState();
+          }
+        }
+      }
     }
 
     state.planCache[date] = {
@@ -1001,18 +1128,321 @@ window.addEventListener("DOMContentLoaded", () => {
     };
     saveState();
     setHidden(overflowHint, overflow.length === 0);
+  }
 
-    if (allowCarry && overflow.length) {
-      const next = addDays(date, 1);
-      const todayArr = state.studyByDate[date] || [];
-      const map = new Map(todayArr.map(x => [x.id, x]));
-      const carry = overflow.map(id => map.get(id)).filter(Boolean);
+  /* ===== Runner / Progress ===== */
+  function findTaskById(taskId) {
+    for (const [d, arr] of Object.entries(state.studyByDate)) {
+      const t = (arr || []).find(x => x.id === taskId);
+      if (t) return { date: d, task: t };
+    }
+    return null;
+  }
 
-      state.studyByDate[date] = todayArr.filter(x => !overflow.includes(x.id));
-      state.studyByDate[next] = [...carry, ...(state.studyByDate[next] || [])];
+  function getTaskSteps(task) {
+    const steps = computeRangeSteps(task.ranges || []);
+    if (steps.length === 0) return ["（範囲なし）"];
+    return steps;
+  }
 
-      delete state.planCache[next];
+  function ensureProgress(taskId, stepsLen) {
+    const p = state.progressByTask[taskId] || { doneSteps: [], spentSec: 0 };
+    if (!Array.isArray(p.doneSteps)) p.doneSteps = [];
+    if (!Number.isFinite(p.spentSec)) p.spentSec = 0;
+
+    if (p.doneSteps.length < stepsLen) {
+      p.doneSteps = p.doneSteps.concat(Array(stepsLen - p.doneSteps.length).fill(false));
+    } else if (p.doneSteps.length > stepsLen) {
+      p.doneSteps = p.doneSteps.slice(0, stepsLen);
+    }
+
+    state.progressByTask[taskId] = p;
+    return p;
+  }
+
+  function computeTotalSec(task) {
+    const steps = getTaskSteps(task);
+    // perRangeMin があるなら「範囲×perRange」
+    if (task.perRangeMin && Number.isFinite(task.perRangeMin) && task.perRangeMin > 0 && steps[0] !== "（範囲なし）") {
+      return steps.length * task.perRangeMin * 60;
+    }
+    // ないなら durationMin
+    return clamp(parseInt(task.durationMin || "30", 10), 1, 2000) * 60;
+  }
+
+  function countDone(doneSteps) {
+    return (doneSteps || []).reduce((a, b) => a + (b ? 1 : 0), 0);
+  }
+
+  function setRunnerActive(taskId) {
+    state.runner.activeTaskId = taskId;
+    saveState();
+  }
+
+  function runnerStop() {
+    state.runner.isRunning = false;
+    state.runner.lastTick = 0;
+    saveState();
+  }
+
+  function runnerStart() {
+    if (!state.runner.activeTaskId) return;
+    state.runner.isRunning = true;
+    state.runner.lastTick = Date.now();
+    saveState();
+  }
+
+  function runnerClearActive() {
+    runnerStop();
+    state.runner.activeTaskId = null;
+    saveState();
+  }
+
+  function openArrivalDialog(taskId) {
+    const found = findTaskById(taskId);
+    const name = found ? `${found.task.subject}｜${found.task.taskType}` : "完了";
+
+    const body = document.createElement("div");
+    body.className = "grid1";
+    const big = document.createElement("div");
+    big.className = "arriveBig";
+    big.textContent = "到着";
+    const sub = document.createElement("div");
+    sub.className = "arriveSub";
+    sub.textContent = name;
+    body.appendChild(big);
+    body.appendChild(sub);
+
+    const ok = mkBtn("OK", "btnPrimary", () => {
+      closeEditor();
+    });
+
+    openEditor("到着", body, [ok]);
+  }
+
+  function openRunner(taskId) {
+    const found = findTaskById(taskId);
+    if (!found) return;
+
+    const t = found.task;
+    const steps = getTaskSteps(t);
+    const p = ensureProgress(taskId, steps.length);
+    const totalSec = computeTotalSec(t);
+
+    setRunnerActive(taskId);
+
+    const body = document.createElement("div");
+    body.className = "runner";
+
+    const top = document.createElement("div");
+    top.className = "runnerTop";
+
+    const title = document.createElement("div");
+    title.className = "runnerTitle";
+    title.textContent = `${t.subject}｜${t.taskType}`;
+
+    const timeBox = document.createElement("div");
+    timeBox.className = "runnerTime";
+
+    const timeBig = document.createElement("div");
+    timeBig.className = "runnerTimeBig";
+
+    const timeSmall = document.createElement("div");
+    timeSmall.className = "runnerTimeSmall";
+
+    timeBox.appendChild(timeBig);
+    timeBox.appendChild(timeSmall);
+
+    top.appendChild(title);
+    top.appendChild(timeBox);
+
+    const prog = document.createElement("div");
+    prog.className = "runnerProg";
+
+    const stepsBox = document.createElement("div");
+    stepsBox.className = "runnerSteps";
+
+    const btnAll = document.createElement("button");
+    btnAll.type = "button";
+    btnAll.className = "btn btnPrimary";
+    btnAll.textContent = "全部完了";
+
+    const makeStepBtn = (label, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "stepBtn";
+      b.dataset.i = String(i);
+
+      const left = document.createElement("span");
+      left.className = "stepLeft";
+      left.textContent = label;
+
+      const right = document.createElement("span");
+      right.className = "stepRight";
+
+      b.appendChild(left);
+      b.appendChild(right);
+
+      b.addEventListener("click", () => {
+        p.doneSteps[i] = !p.doneSteps[i];
+        state.progressByTask[taskId] = p;
+        saveState();
+        renderRunner();
+      });
+
+      return b;
+    };
+
+    const stepBtns = steps.map((s, i) => makeStepBtn(s, i));
+    stepBtns.forEach(b => stepsBox.appendChild(b));
+
+    btnAll.addEventListener("click", () => {
+      for (let i = 0; i < p.doneSteps.length; i++) p.doneSteps[i] = true;
+      p.spentSec = Math.max(p.spentSec, totalSec);
+      state.progressByTask[taskId] = p;
       saveState();
+      runnerStop();
+      renderRunner();
+      openArrivalDialog(taskId);
+    });
+
+    const footerRow = document.createElement("div");
+    footerRow.className = "runnerBtnsRow";
+
+    const btnToggle = document.createElement("button");
+    btnToggle.type = "button";
+    btnToggle.className = "btn btnPrimary";
+
+    const btnPause = document.createElement("button");
+    btnPause.type = "button";
+    btnPause.className = "btn btnGhost";
+    btnPause.textContent = "中断";
+
+    const btnReset = document.createElement("button");
+    btnReset.type = "button";
+    btnReset.className = "btn btnGhost";
+    btnReset.textContent = "リセット";
+
+    footerRow.appendChild(btnToggle);
+    footerRow.appendChild(btnReset);
+    footerRow.appendChild(btnPause);
+
+    btnToggle.addEventListener("click", () => {
+      if (state.runner.activeTaskId !== taskId) setRunnerActive(taskId);
+      if (state.runner.isRunning) runnerStop();
+      else runnerStart();
+      renderRunner();
+    });
+
+    btnPause.addEventListener("click", () => {
+      // タスクは残すが、実行中だけ解除
+      runnerStop();
+      // HUDに残したいなら activeTaskId は残してOK。今回は「中断」で active も解除。
+      runnerClearActive();
+      renderRunner();
+      closeEditor();
+      setHUDVisible(false);
+    });
+
+    btnReset.addEventListener("click", () => {
+      runnerStop();
+      p.spentSec = 0;
+      state.progressByTask[taskId] = p;
+      saveState();
+      renderRunner();
+    });
+
+    body.appendChild(top);
+    body.appendChild(prog);
+    body.appendChild(btnAll);
+    body.appendChild(stepsBox);
+
+    const saveBtn = mkBtn("閉じる", "btnGhost", () => {
+      // 閉じる＝実行は継続しても良い。今回は「継続」にしてHUDで戻れるようにする
+      closeEditor();
+    });
+
+    openEditor("実行", body, [saveBtn]);
+
+    function renderRunner() {
+      // tickで p.spentSec は増えるので最新を取り直す
+      const p2 = ensureProgress(taskId, steps.length);
+      const done = countDone(p2.doneSteps);
+      const remainSec = Math.max(0, totalSec - (p2.spentSec || 0));
+
+      timeBig.textContent = fmtMS(remainSec);
+      timeSmall.textContent = `残り ${Math.ceil(remainSec / 60)}分`;
+
+      prog.textContent = `${done}/${steps.length}`;
+
+      stepBtns.forEach((b, i) => {
+        const doneOne = !!p2.doneSteps[i];
+        b.classList.toggle("isDone", doneOne);
+        b.querySelector(".stepRight").textContent = doneOne ? "完了" : "";
+      });
+
+      btnToggle.textContent = state.runner.isRunning ? "一時停止" : "開始";
+
+      // 全部完了で自動到着
+      if (done === steps.length) {
+        runnerStop();
+        // すでに到着を出した直後の二重表示を避けたいので、spentSec をtotalに寄せるだけ
+        p2.spentSec = Math.max(p2.spentSec, totalSec);
+        state.progressByTask[taskId] = p2;
+        saveState();
+      }
+
+      // HUD更新
+      if (state.runner.activeTaskId === taskId) {
+        hudSubj.textContent = t.subject;
+        hudTime.textContent = fmtMS(remainSec);
+        setHUDVisible(true);
+      }
+    }
+
+    renderRunner();
+  }
+
+  function tickRunner() {
+    const taskId = state.runner.activeTaskId;
+    if (!taskId) { setHUDVisible(false); return; }
+
+    const found = findTaskById(taskId);
+    if (!found) {
+      runnerClearActive();
+      setHUDVisible(false);
+      return;
+    }
+
+    const t = found.task;
+    const steps = getTaskSteps(t);
+    const p = ensureProgress(taskId, steps.length);
+    const totalSec = computeTotalSec(t);
+
+    // HUDを常に更新
+    const remainBefore = Math.max(0, totalSec - (p.spentSec || 0));
+    hudSubj.textContent = t.subject;
+    hudTime.textContent = fmtMS(remainBefore);
+    setHUDVisible(true);
+
+    if (!state.runner.isRunning) return;
+
+    const now = Date.now();
+    const last = state.runner.lastTick || now;
+    const deltaSec = Math.floor((now - last) / 1000);
+    if (deltaSec <= 0) return;
+
+    p.spentSec = clamp((p.spentSec || 0) + deltaSec, 0, totalSec);
+    state.progressByTask[taskId] = p;
+    state.runner.lastTick = last + deltaSec * 1000;
+    saveState();
+
+    const remain = Math.max(0, totalSec - p.spentSec);
+    hudTime.textContent = fmtMS(remain);
+
+    if (remain <= 0) {
+      runnerStop();
+      openArrivalDialog(taskId);
     }
   }
 
@@ -1047,13 +1477,7 @@ window.addEventListener("DOMContentLoaded", () => {
       head.appendChild(meta);
       li.appendChild(head);
 
-      head.addEventListener("click", () => {
-        if (b.kind === "routine") {
-          openRoutineEditor(date);
-        } else {
-          openLifeEditor(date, b.sourceId);
-        }
-      });
+      // v12: 生活の編集は無効（タップしても何もしない）
 
       lifeList.appendChild(li);
     }
@@ -1114,6 +1538,7 @@ window.addEventListener("DOMContentLoaded", () => {
       li.appendChild(head);
       li.appendChild(btns);
 
+      // 勉強リストは編集OK（今まで通り）
       head.addEventListener("click", () => openStudyEditor(date, t.id));
 
       studyList.appendChild(li);
@@ -1160,10 +1585,20 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function removeStudy(date, idx) {
     const arr = state.studyByDate[date] ? [...state.studyByDate[date]] : [];
+    const removed = arr[idx];
     arr.splice(idx, 1);
     state.studyByDate[date] = arr;
     delete state.planCache[date];
     saveState();
+
+    // 進捗も掃除（任意）
+    if (removed?.id && state.progressByTask[removed.id]) {
+      delete state.progressByTask[removed.id];
+      // runnerがそのタスクなら止める
+      if (state.runner.activeTaskId === removed.id) runnerClearActive();
+      saveState();
+    }
+
     renderStudyList();
     renderTimeline(true);
   }
@@ -1210,7 +1645,7 @@ window.addEventListener("DOMContentLoaded", () => {
       blocks = plan.blocks;
     } else {
       blocks = [
-        ...routineBlocksForDate(date).filter(b => b.date === date),
+        ...routineBlocksForDate(date),
         ...customLifeBlocksForDate(date).filter(b => b.date === date),
       ].sort((a, b) => a.startMin - b.startMin);
     }
@@ -1218,8 +1653,13 @@ window.addEventListener("DOMContentLoaded", () => {
     for (const b of blocks) {
       const el = document.createElement("div");
       el.className = "block" + (b.contOut ? " contOut" : "") + (b.contIn ? " contIn" : "");
+      const durMin = (b.endMin - b.startMin);
+
+      if (durMin <= 20) el.classList.add("isTiny");
+      else if (durMin <= 35) el.classList.add("isSmall");
+
       el.style.top = `${b.startMin * PX_PER_MIN}px`;
-      el.style.height = `${Math.max(18, (b.endMin - b.startMin) * PX_PER_MIN)}px`;
+      el.style.height = `${Math.max(18, durMin * PX_PER_MIN)}px`;
       el.style.borderLeftColor = b.color || cssVar("--gray");
 
       const title = document.createElement("div");
@@ -1228,22 +1668,24 @@ window.addEventListener("DOMContentLoaded", () => {
 
       const meta = document.createElement("div");
       meta.className = "blockMeta";
-      const dur = b.endMin - b.startMin;
 
-      meta.appendChild(badge(`${hhmmOf(b.startMin)}–${hhmmOf(b.endMin)} / ${dur}m`));
-      meta.appendChild(badge(b.kind === "study" ? "勉強" : "生活"));
+      meta.appendChild(badge(`${hhmmOf(b.startMin)}–${hhmmOf(b.endMin)}`));
+      if (b.kind === "study") meta.appendChild(badge("勉強"));
+      else meta.appendChild(badge("生活"));
       if (b.meta) meta.appendChild(badge(b.meta));
 
       el.appendChild(title);
       el.appendChild(meta);
 
+      // v12: タップ挙動
+      // - 生活：編集しない（無効）
+      // - 勉強：実行モードを開く
       el.addEventListener("click", () => {
-        if (b.kind === "study") {
-          openStudyEditor(date, b.sourceId);
-        } else {
-          if (b.kind === "routine") openRoutineEditor(date);
-          else openLifeEditor(date, b.sourceId);
-        }
+        if (b.kind !== "study") return;
+
+        // perRange の場合 sourceId が "taskId:stepIndex" になる
+        const taskId = (b.taskId || String(b.sourceId).split(":")[0]);
+        openRunner(taskId);
       });
 
       canvas.appendChild(el);
@@ -1385,172 +1827,7 @@ window.addEventListener("DOMContentLoaded", () => {
     return b;
   }
 
-  function openRoutineEditor(date) {
-    const r = { ...getRoutine(date) };
-
-    const body = document.createElement("div");
-    body.className = "grid1";
-
-    const schoolOn = mkSelect([["on", "入れる"], ["off", "入れない"]], r.schoolOn || "on");
-    const amStart = mkInput("time", r.commuteAMStart);
-    const amMin = mkInput("number", r.commuteAMMin);
-    amMin.min = "1"; amMin.step = "1";
-
-    const scStart = mkInput("time", r.schoolStart);
-    const scEnd = mkInput("time", r.schoolEnd);
-
-    const clubOn = mkSelect([["off", "入れない"], ["on", "入れる"]], r.clubOn || "off");
-    const clubStart = mkInput("time", r.clubStart);
-    const clubEnd = mkInput("time", r.clubEnd);
-
-    const retMode = mkSelect([["60", "60分（1回）"], ["30x2", "30分（2回）"]], r.returnMode || "60");
-    const ret2 = mkSelect($$("#routineReturn2Start option").map(o => [o.value, o.value]), r.return2Start || "19:00");
-
-    const bathOn = mkSelect([["on", "入れる"], ["off", "入れない"]], r.bathOn || "on");
-    const bathMin = mkInput("number", r.bathMin);
-    bathMin.min = "1"; bathMin.step = "1";
-    const prepMin = mkInput("number", r.prepMin);
-    prepMin.min = "1"; prepMin.step = "1";
-
-    const slStart = mkInput("time", r.sleepStart);
-    const wake = mkInput("time", r.wakeTime);
-
-    body.appendChild(mkField("授業", schoolOn));
-    body.appendChild(mkField("朝の移動 開始", amStart));
-    body.appendChild(mkField("朝の移動 分", amMin));
-    body.appendChild(mkField("授業 開始", scStart));
-    body.appendChild(mkField("授業 終了", scEnd));
-    body.appendChild(mkField("部活", clubOn));
-    body.appendChild(mkField("部活 開始", clubStart));
-    body.appendChild(mkField("部活 終了", clubEnd));
-    body.appendChild(mkField("帰り移動", retMode));
-    body.appendChild(mkField("2回目の移動 開始", ret2));
-    body.appendChild(mkField("風呂", bathOn));
-    body.appendChild(mkField("風呂 分", bathMin));
-    body.appendChild(mkField("準備 分", prepMin));
-    body.appendChild(mkField("就寝", slStart));
-    body.appendChild(mkField("起床", wake));
-
-    const save = mkBtn("保存", "btnPrimary", () => {
-      setRoutine(date, {
-        schoolOn: schoolOn.value,
-        commuteAMStart: amStart.value || "07:30",
-        commuteAMMin: clamp(parseInt(amMin.value || "60", 10), 1, 1000),
-        schoolStart: scStart.value || "08:30",
-        schoolEnd: scEnd.value || "15:00",
-        clubOn: clubOn.value,
-        clubStart: clubStart.value || "16:10",
-        clubEnd: clubEnd.value || "18:30",
-        returnMode: retMode.value,
-        return2Start: ret2.value || "19:00",
-        bathOn: bathOn.value,
-        bathMin: clamp(parseInt(bathMin.value || "60", 10), 1, 600),
-        prepMin: clamp(parseInt(prepMin.value || "15", 10), 1, 600),
-        sleepStart: slStart.value || "23:30",
-        wakeTime: wake.value || "06:30",
-      });
-      applyRoutineToUI(date);
-      renderLifeList();
-      renderTimeline(true);
-      closeEditor();
-    });
-
-    openEditor(`${date} ルーティン編集`, body, [save]);
-  }
-
-  function canPlaceCustom(date, block, ignoreId) {
-    const d0 = date;
-    const d1 = addDays(date, 1);
-
-    const parts = splitCrossMidnight(d0, block.startMin, block.endMin);
-
-    const segs0 = [
-      ...routineBlocksForDate(d0).filter(b => b.date === d0).map(b => ({ startMin: b.startMin, endMin: b.endMin })),
-      ...customLifeBlocksForDate(d0)
-        .filter(b => b.date === d0 && b.sourceId !== ignoreId)
-        .map(b => ({ startMin: b.startMin, endMin: b.endMin })),
-      ...parts.filter(p => p.date === d0).map(p => ({ startMin: p.startMin, endMin: p.endMin })),
-    ];
-    if (hasOverlap(segs0)) return false;
-
-    const partNext = parts.filter(p => p.date === d1);
-    if (partNext.length) {
-      const segs1 = [
-        ...routineBlocksForDate(d1).filter(b => b.date === d1).map(b => ({ startMin: b.startMin, endMin: b.endMin })),
-        ...customLifeBlocksForDate(d1)
-          .filter(b => b.date === d1 && b.sourceId !== ignoreId)
-          .map(b => ({ startMin: b.startMin, endMin: b.endMin })),
-        ...partNext.map(p => ({ startMin: p.startMin, endMin: p.endMin })),
-      ];
-      if (hasOverlap(segs1)) return false;
-    }
-    return true;
-  }
-
-  function openLifeEditor(date, lifeId) {
-    const arr = state.lifeByDate[date] || [];
-    const idx = arr.findIndex(x => x.id === lifeId);
-    if (idx < 0) return;
-
-    const b = { ...arr[idx] };
-
-    const body = document.createElement("div");
-    body.className = "grid1";
-
-    const type = mkInput("text", b.type);
-    const start = mkInput("time", hhmmOf(b.startMin));
-    const end = mkInput("time", hhmmOf(((b.endMin <= b.startMin) ? (b.endMin + 1440) : b.endMin) % 1440));
-
-    body.appendChild(mkField("種類", type));
-    body.appendChild(mkField("開始", start));
-    body.appendChild(mkField("終了（開始より早いと翌日扱い）", end));
-
-    const save = mkBtn("保存", "btnPrimary", () => {
-      const s = minutesOf(start.value);
-      const e = minutesOf(end.value);
-      if (s == null || e == null) return;
-
-      const newB = {
-        id: b.id,
-        type: type.value.trim() || b.type,
-        startMin: s,
-        endMin: (e <= s) ? (e + 1440) : e
-      };
-
-      const tempArr = [...arr];
-      tempArr[idx] = newB;
-      state.lifeByDate[date] = tempArr;
-
-      const ok = canPlaceCustom(date, newB, b.id);
-      if (!ok) {
-        state.lifeByDate[date] = arr;
-        saveState();
-        return;
-      }
-
-      delete state.planCache[date];
-      delete state.planCache[addDays(date, 1)];
-      saveState();
-
-      renderLifeList();
-      renderTimeline(true);
-      closeEditor();
-    });
-
-    const del = mkBtn("削除", "btnGhost", () => {
-      const next = arr.filter(x => x.id !== lifeId);
-      state.lifeByDate[date] = next;
-      delete state.planCache[date];
-      delete state.planCache[addDays(date, 1)];
-      saveState();
-      renderLifeList();
-      renderTimeline(true);
-      closeEditor();
-    });
-
-    openEditor(`${date} 生活編集`, body, [save, del]);
-  }
-
+  /* ===== Study editor（既存のまま） ===== */
   function openStudyEditor(date, taskId) {
     normalizeDayEstimates(date);
 
@@ -1573,7 +1850,6 @@ window.addEventListener("DOMContentLoaded", () => {
     const taskFreeWrap = document.createElement("div");
     taskFreeWrap.className = "grid1";
 
-    // v11: perRange
     const perRange = mkInput("number", t.perRangeMin ?? "");
     perRange.min = "1";
     perRange.step = "1";
@@ -1598,7 +1874,6 @@ window.addEventListener("DOMContentLoaded", () => {
       return typed ? typed : "その他";
     };
 
-    // v11: perRange があるときだけ見積を追従
     const autoMinUpdate = () => {
       const per = parseInt(perRange.value, 10);
       if (!Number.isFinite(per) || per <= 0) return;
@@ -1844,7 +2119,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     const block = { id: uid(), type, startMin, endMin };
-
+    // 重なり防止（ルーティン＋生活追加）
     if (!canPlaceCustom(date, block, null)) {
       setHidden(lifeAddHint, false);
       return;
@@ -1916,7 +2191,7 @@ window.addEventListener("DOMContentLoaded", () => {
       subject,
       taskType,
       ranges,
-      perRangeMin,     // v11
+      perRangeMin,
       durationMin,
       deadlineHHMM: deadline,
       createdAt: Date.now()
@@ -1955,6 +2230,36 @@ window.addEventListener("DOMContentLoaded", () => {
     jumpToDay(fmtDate(new Date()), true);
   });
 
+  /* ===== overlap check for custom life ===== */
+  function canPlaceCustom(date, block, ignoreId) {
+    const d0 = date;
+    const d1 = addDays(date, 1);
+
+    const parts = splitCrossMidnight(d0, block.startMin, block.endMin);
+
+    const segs0 = [
+      ...routineBlocksForDate(d0).map(b => ({ startMin: b.startMin, endMin: b.endMin })),
+      ...customLifeBlocksForDate(d0)
+        .filter(b => b.date === d0 && b.sourceId !== ignoreId)
+        .map(b => ({ startMin: b.startMin, endMin: b.endMin })),
+      ...parts.filter(p => p.date === d0).map(p => ({ startMin: p.startMin, endMin: p.endMin })),
+    ];
+    if (hasOverlap(segs0)) return false;
+
+    const partNext = parts.filter(p => p.date === d1);
+    if (partNext.length) {
+      const segs1 = [
+        ...routineBlocksForDate(d1).map(b => ({ startMin: b.startMin, endMin: b.endMin })),
+        ...customLifeBlocksForDate(d1)
+          .filter(b => b.date === d1 && b.sourceId !== ignoreId)
+          .map(b => ({ startMin: b.startMin, endMin: b.endMin })),
+        ...partNext.map(p => ({ startMin: p.startMin, endMin: p.endMin })),
+      ];
+      if (hasOverlap(segs1)) return false;
+    }
+    return true;
+  }
+
   /* ===== Clock ===== */
   function startClock() {
     const tick = () => {
@@ -1988,13 +2293,13 @@ window.addEventListener("DOMContentLoaded", () => {
     setHidden(studyOtherSubjectWrap, true);
     setHidden(studyTaskFreeWrap, true);
 
-    studyPerRangeMin.value = ""; // v11
-    studyMin.value = "30";
-    studyDeadline.value = "";
-
     renderLifeList();
     renderStudyList();
     renderTimeline(true);
+
+    // runner HUD
+    setHUDVisible(!!state.runner.activeTaskId);
+    tickRunner();
   }
 
   initSelects();
@@ -2002,4 +2307,9 @@ window.addEventListener("DOMContentLoaded", () => {
   startClock();
   updateNowLine();
   setInterval(updateNowLine, 30 * 1000);
+
+  // runner tick
+  setInterval(() => {
+    try { tickRunner(); } catch {}
+  }, 1000);
 });
