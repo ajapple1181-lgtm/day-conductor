@@ -232,6 +232,19 @@ const btnJumpTop = $("#btnJumpTop");
 const timelineWrap = $("#timelineWrap");
 const timeline = $("#timeline");
 
+// ✅ 起動直後に勝手に出る「確認」を止める（ユーザー操作があってからだけ出す）
+let userInteracted = false;
+
+window.addEventListener("pointerdown", () => { userInteracted = true; }, { once: true });
+window.addEventListener("keydown", () => { userInteracted = true; }, { once: true });
+
+// 起動時に万一開いていても強制で閉じる
+window.addEventListener("DOMContentLoaded", () => {
+  try { closeModal(); } catch(e) {}
+  const m = document.getElementById("modal");
+  if (m) m.hidden = true;
+});
+
 /* ====== Init ====== */
 initSelects();
 hydrateUIFromState();
@@ -1388,6 +1401,22 @@ function startClock(){
 
 /* ====== Modal ====== */
 function confirmModal(title, text, okText, onOk){
+  // ✅ ユーザーが一度も触ってないのに出ようとした確認はブロック
+  if (!userInteracted) {
+    try { closeModal(); } catch(e) {}
+    const m = document.getElementById("modal");
+    if (m) m.hidden = true;
+    return;
+  }
+
+  modalTitle.textContent = title;
+  modalText.textContent = text;
+  modalOk.textContent = okText || "OK";
+  modalOk._onOk = onOk;
+  modal.hidden = false;
+}
+
+function confirmModal(title, text, okText, onOk){
   modalTitle.textContent = title;
   modalText.textContent = text;
   modalOk.textContent = okText || "OK";
@@ -1437,6 +1466,3 @@ function jumpToDayTop(date){
   if (!lifeDate.value) lifeDate.value = state.ui.lifeDate || today;
   if (!studyDate.value) studyDate.value = state.ui.studyDate || today;
 })();
-
-// 起動時に確認モーダルを強制的に閉じる
-try { closeModal(); } catch(e) {}
