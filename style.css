@@ -23,7 +23,6 @@ body{
   color:var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", sans-serif;
 }
-
 button,input,select{ font:inherit; }
 :focus-visible{ outline:2px solid rgba(255,255,255,.25); outline-offset:2px; }
 
@@ -33,7 +32,6 @@ button,input,select{ font:inherit; }
   padding:10px 10px calc(14px + env(safe-area-inset-bottom));
 }
 
-/* top */
 .topbar{
   display:flex;
   align-items:center;
@@ -43,7 +41,22 @@ button,input,select{ font:inherit; }
   border-radius:var(--r);
   background:var(--panel);
 }
-#clockText{ font-size:20px; font-weight:900; letter-spacing:.5px; }
+.appTitle{ font-weight:1000; letter-spacing:.2px; }
+.spacer{ flex:1 1 auto; }
+.clock{ font-size:18px; font-weight:900; letter-spacing:.4px; }
+
+.remainPill{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(0,0,0,.18);
+}
+#remainSubj{ font-weight:1000; }
+#remainTime{ font-weight:900; color:var(--muted); }
+
 .tabs{
   display:flex;
   gap:8px;
@@ -60,7 +73,7 @@ button,input,select{ font:inherit; }
   border:1px solid transparent;
   background:rgba(255,255,255,.06);
   color:var(--muted);
-  font-weight:800;
+  font-weight:900;
 }
 .tab.is-active{
   background:rgba(255,255,255,.12);
@@ -71,8 +84,20 @@ button,input,select{ font:inherit; }
 .panel{ display:none; margin-top:12px; }
 .panel.is-active{ display:block; }
 
+.card{
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:var(--r);
+  background:rgba(255,255,255,.06);
+}
+.section{ padding:var(--pad); }
+.sectionTitle{ font-weight:1000; margin-bottom:10px; }
+.hr{ height:1px; background:rgba(255,255,255,.10); margin:12px 0; border:0; }
+
 .field{ display:grid; gap:6px; margin-bottom:10px; }
-.label{ font-size:13px; color:var(--muted); font-weight:800; }
+.label{ font-size:13px; color:var(--muted); font-weight:900; }
+
+.grid2{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+@media (max-width:420px){ .grid2{ grid-template-columns:1fr; } }
 
 input[type="text"],input[type="number"],input[type="time"],input[type="date"],select{
   width:100%;
@@ -89,12 +114,52 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   border:1px solid rgba(255,255,255,.14);
   background:rgba(255,255,255,.08);
   color:var(--text);
-  font-weight:900;
+  font-weight:1000;
 }
 .btnPrimary{ background:rgba(255,255,255,.14); }
 .btnGhost{ background:transparent; color:var(--muted); }
 .btnMini{ padding:8px 10px; border-radius:12px; font-size:13px; }
 
+.row{ display:flex; gap:10px; align-items:center; }
+
+.radioRow{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+.radioPill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.06);
+  color:var(--muted);
+  font-weight:900;
+}
+
+.hint{ margin-top:8px; font-size:13px; color:rgba(255,180,180,.92); }
+.note{ font-size:12px; color:rgba(240,244,255,.55); margin-top:6px; }
+
+/* ranges */
+.cardMini{
+  padding:10px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:var(--r);
+  background:rgba(255,255,255,.06);
+}
+.miniHead{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.miniTitle{ font-weight:1000; }
+
+.ranges{ display:grid; gap:8px; }
+.rangeRow{ display:grid; grid-template-columns:1fr 1fr 46px; gap:8px; align-items:center; }
+.rangeDel{
+  width:46px; height:44px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.07);
+  color:var(--text);
+  font-weight:1000;
+}
+
+/* lists */
 .list{
   list-style:none;
   padding:0;
@@ -112,7 +177,7 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   padding:12px;
   border-left:8px solid var(--gray);
 }
-.liTitle{ font-size:16px; font-weight:900; }
+.liTitle{ font-size:16px; font-weight:1000; }
 .liMeta{
   margin-top:6px;
   font-size:13px;
@@ -128,21 +193,9 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   padding:10px 12px 12px;
 }
 
-/* ranges */
-.ranges{ display:grid; gap:8px; }
-.rangeRow{ display:grid; grid-template-columns:1fr 1fr 46px; gap:8px; align-items:center; }
-.rangeDel,.rd{
-  width:46px; height:44px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.07);
-  color:var(--text);
-  font-weight:900;
-}
-
 /* timeline */
-#timeline{
-  height: calc(100vh - 210px);
+.timeline{
+  height: calc(100vh - 190px);
   overflow:auto;
   border:1px solid var(--stroke);
   border-radius:var(--r);
@@ -150,11 +203,11 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
 }
 .day{ padding:12px; border-bottom:1px solid rgba(255,255,255,.10); }
 .dayHeader{
-  padding:8px 10px;
+  padding:6px 10px;
   border:1px solid rgba(255,255,255,.12);
   border-radius:12px;
   background:rgba(255,255,255,.06);
-  font-weight:900;
+  font-weight:1000;
 }
 .dayGrid{ display:grid; grid-template-columns:64px 1fr; gap:10px; margin-top:10px; }
 .axis{ position:relative; }
@@ -184,9 +237,10 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   background:rgba(255,255,255,.08);
   padding:10px 10px;
   overflow:hidden;
+  cursor:pointer;
 }
 .blockTitle{
-  font-weight:900;
+  font-weight:1000;
   font-size:14px;
   line-height:1.15;
   white-space:nowrap;
@@ -201,7 +255,7 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
 }
 .badge{
   font-size:12px;
-  font-weight:800;
+  font-weight:900;
   padding:4px 8px;
   border-radius:999px;
   border:1px solid rgba(255,255,255,.12);
@@ -209,13 +263,12 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   color:rgba(240,244,255,.92);
 }
 
-/* 短いブロックは文字潰れ防止：メタを隠す */
+/* tiny blocks: hide meta so text doesn't collapse */
 .block.isTiny{ padding:8px 10px; }
 .block.isTiny .blockMeta{ display:none; }
 .block.isTiny .blockTitle{ font-size:12px; }
-.block.isSmall .blockMeta{ display:none; } /* 35分以下もメタを隠して見やすく */
+.block.isSmall .blockMeta{ display:none; }
 
-/* NOW */
 .nowLine{
   position:absolute;
   left:0; right:0;
@@ -231,11 +284,11 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   background:rgba(255,255,255,.14);
   border:1px solid rgba(255,255,255,.18);
   font-size:12px;
-  font-weight:900;
+  font-weight:1000;
   pointer-events:none;
 }
 
-/* editor (scroll fix included) */
+/* editor (opaque) */
 #editor[hidden]{ display:none !important; }
 #editor{
   position:fixed;
@@ -244,70 +297,55 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   display:flex;
   align-items:flex-end;
   justify-content:center;
-  padding:10px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom));
-  background:rgba(0,0,0,.55);
+  padding:0;
+  background:var(--bg); /* ← 透明にしない */
 }
-#editor .sheet, #editor .editorSheet, #editorSheet{
-  width:min(560px,100%);
-  max-height:92vh;
+#editor .sheet{
+  width:min(620px,100%);
+  height:100vh;
   display:flex;
   flex-direction:column;
-  border-radius:16px;
-  overflow:hidden;
-  background:var(--panel);
-  border:1px solid rgba(255,255,255,.14);
+  background:var(--panel); /* ← 透明にしない */
+  border-left:1px solid rgba(255,255,255,.14);
+  border-right:1px solid rgba(255,255,255,.14);
 }
-#editorTitle{
-  padding:14px;
-  font-weight:900;
+.editorHeader{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px;
   border-bottom:1px solid rgba(255,255,255,.10);
   background:rgba(255,255,255,.06);
 }
+#editorTitle{ font-weight:1000; }
+#editorBody{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  padding:12px;
+}
 #editorFoot{
-  padding:12px 14px;
+  padding:12px;
   display:flex;
   gap:10px;
   justify-content:flex-end;
   border-top:1px solid rgba(255,255,255,.10);
   background:rgba(255,255,255,.06);
 }
-#editorBody{
-  flex:1 1 auto;
-  min-height:0;
-  overflow-y:auto;
-  -webkit-overflow-scrolling:touch;
-  padding:14px;
-}
-.grid1{ display:grid; gap:10px; }
 
-.cardMini{
-  padding:10px;
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:var(--r);
-  background:rgba(255,255,255,.06);
-}
-.miniHead{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-.miniTitle{ font-weight:900; }
+.grid1{ display:grid; gap:10px; }
 
 /* runner */
 .runner{ display:grid; gap:10px; }
-.runnerTop{ display:grid; gap:8px; }
-.runnerTitle{ font-weight:900; font-size:16px; }
 .runnerTime{
   border:1px solid rgba(255,255,255,.12);
   border-radius:14px;
   background:rgba(0,0,0,.18);
   padding:10px;
 }
-.runnerTimeBig{ font-size:28px; font-weight:900; letter-spacing:.5px; }
-.runnerTimeSmall{ color:var(--muted); font-weight:800; margin-top:4px; }
-.runnerProg{
-  text-align:right;
-  color:var(--muted);
-  font-weight:900;
-}
-.runnerSteps{ display:grid; gap:8px; }
+.runnerTimeBig{ font-size:28px; font-weight:1000; letter-spacing:.5px; }
+.runnerTimeSmall{ color:var(--muted); font-weight:900; margin-top:4px; }
 .stepBtn{
   display:flex;
   align-items:center;
@@ -318,36 +356,13 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   border:1px solid rgba(255,255,255,.12);
   background:rgba(255,255,255,.06);
   color:var(--text);
-  font-weight:900;
+  font-weight:1000;
 }
-.stepBtn.isDone{
-  opacity:.75;
-  text-decoration:line-through;
-}
-.stepRight{ color:var(--muted); font-weight:900; }
-.arriveBig{ font-size:36px; font-weight:1000; text-align:center; }
-.arriveSub{ text-align:center; color:var(--muted); font-weight:900; }
-
-/* HUD */
-#hud{
-  position:fixed;
-  top:10px;
-  left:10px;
-  z-index:10000;
-  display:none;
-  gap:8px;
-  align-items:center;
-  padding:8px 10px;
-  border-radius:999px;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(20,26,42,.92);
-  color:var(--text);
-}
-#hud .hudSubj{ font-weight:1000; }
-#hud .hudTime{ font-weight:900; color:var(--muted); }
+.stepBtn.isDone{ opacity:.75; text-decoration:line-through; }
+.stepRight{ color:var(--muted); font-weight:1000; }
 
 @media (max-width:420px){
-  #timeline{ height: calc(100vh - 225px); }
+  .timeline{ height: calc(100vh - 205px); }
   .dayGrid{ grid-template-columns:58px 1fr; }
   .hourLabel{ width:58px; }
-  }
+          }
