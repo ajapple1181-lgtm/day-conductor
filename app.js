@@ -170,6 +170,12 @@ const modalText = $("#modalText");
 const modalCancel = $("#modalCancel");
 const modalOk = $("#modalOk");
 
+window.addEventListener("DOMContentLoaded", () => {
+  try { closeModal(); } catch(e) {}
+  const m = document.getElementById("modal");
+  if (m) m.hidden = true;
+});
+
 /* settings */
 const setCommuteStart = $("#setCommuteStart");
 const setCommuteMin = $("#setCommuteMin");
@@ -231,19 +237,6 @@ const btnJumpNow = $("#btnJumpNow");
 const btnJumpTop = $("#btnJumpTop");
 const timelineWrap = $("#timelineWrap");
 const timeline = $("#timeline");
-
-// ✅ 起動直後に勝手に出る「確認」を止める（ユーザー操作があってからだけ出す）
-let userInteracted = false;
-
-window.addEventListener("pointerdown", () => { userInteracted = true; }, { once: true });
-window.addEventListener("keydown", () => { userInteracted = true; }, { once: true });
-
-// 起動時に万一開いていても強制で閉じる
-window.addEventListener("DOMContentLoaded", () => {
-  try { closeModal(); } catch(e) {}
-  const m = document.getElementById("modal");
-  if (m) m.hidden = true;
-});
 
 /* ====== Init ====== */
 initSelects();
@@ -1400,15 +1393,6 @@ function startClock(){
 }
 
 /* ====== Modal ====== */
-function confirmModal(title, text, okText, onOk){
-  // ✅ ユーザーが一度も触ってないのに出ようとした確認はブロック
-  if (!userInteracted) {
-    try { closeModal(); } catch(e) {}
-    const m = document.getElementById("modal");
-    if (m) m.hidden = true;
-    return;
-  }
-
   modalTitle.textContent = title;
   modalText.textContent = text;
   modalOk.textContent = okText || "OK";
