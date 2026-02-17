@@ -1,6 +1,6 @@
 :root{
   --bg:#0b0f14;
-  --panel:#101823;
+  --panel:#0f1620;
   --card:#0f1620;
   --text:#e8eef7;
   --muted:rgba(232,238,247,.72);
@@ -19,14 +19,14 @@
   --pxPerMin:1.25px;
 }
 
+/* hidden を最優先（勝手に出るのを防ぐ） */
+[hidden]{ display:none !important; }
+
 *{ box-sizing:border-box; }
 html,body{ height:100%; }
 body{
   margin:0;
-  background:
-    radial-gradient(1100px 700px at 10% 0%, rgba(85,182,255,.10), transparent 60%),
-    radial-gradient(900px 600px at 90% 10%, rgba(255,111,168,.08), transparent 60%),
-    var(--bg);
+  background: var(--bg); /* 全体同じ背景 */
   color:var(--text);
   font-family: system-ui, -apple-system, "Noto Sans JP", "Segoe UI", Roboto, sans-serif;
 }
@@ -40,9 +40,8 @@ body{
   align-items:center;
   justify-content:space-between;
   padding:12px 12px;
-  background:linear-gradient(to bottom, rgba(16,24,35,.92), rgba(16,24,35,.78));
-  backdrop-filter: blur(10px);
-  border-bottom:1px solid rgba(255,255,255,.06);
+  background: var(--bg);
+  border-bottom:1px solid rgba(255,255,255,.08);
 }
 .brand{ display:flex; flex-direction:column; gap:2px; }
 .brandTitle{ font-weight:900; letter-spacing:.10em; font-size:14px; }
@@ -54,8 +53,8 @@ body{
   height:40px;
   padding:0 14px;
   border-radius:14px;
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.06);
   color:var(--text);
   font-weight:900;
   letter-spacing:.06em;
@@ -70,15 +69,14 @@ body{
   display:flex;
   gap:8px;
   padding:10px 12px;
-  background:rgba(11,15,20,.72);
-  backdrop-filter: blur(10px);
-  border-bottom:1px solid rgba(255,255,255,.06);
+  background: var(--bg);
+  border-bottom:1px solid rgba(255,255,255,.08);
 }
 .tab{
   flex:1;
   padding:12px 10px;
   border-radius:16px;
-  border:1px solid rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
   background:rgba(255,255,255,.04);
   color:var(--muted);
   font-weight:900;
@@ -86,10 +84,9 @@ body{
   cursor:pointer;
 }
 .tab.is-active{
-  background:linear-gradient(180deg, rgba(85,182,255,.22), rgba(85,182,255,.10));
+  background:rgba(255,255,255,.08);
   color:var(--text);
-  border-color: rgba(85,182,255,.30);
-  box-shadow: 0 10px 40px rgba(0,0,0,.25);
+  border-color: rgba(255,255,255,.18);
 }
 
 .main{
@@ -101,8 +98,8 @@ body{
 .panel.is-active{ display:block; }
 
 .card{
-  background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-  border:1px solid rgba(255,255,255,.08);
+  background: var(--card);
+  border:1px solid rgba(255,255,255,.10);
   border-radius:var(--radius);
   padding:12px;
   margin-bottom:12px;
@@ -116,7 +113,7 @@ body{
 }
 .cardTitle{
   font-weight:950;
-  letter-spacing:.08em;
+  letter-spacing:.06em;
 }
 .cardTools{ display:flex; gap:8px; flex-wrap:wrap; }
 
@@ -138,7 +135,7 @@ input, select{
   width:100%;
   padding:12px 12px;
   border-radius:14px;
-  border:1px solid rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
   background:rgba(0,0,0,.22);
   color:var(--text);
   outline:none;
@@ -151,7 +148,7 @@ input::placeholder{ color:rgba(232,238,247,.35); }
 .btn{
   padding:12px 14px;
   border-radius:16px;
-  border:1px solid rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
   background:rgba(255,255,255,.06);
   color:var(--text);
   font-weight:950;
@@ -159,8 +156,8 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   cursor:pointer;
 }
 .btnPrimary{
-  border-color: rgba(85,182,255,.35);
-  background: linear-gradient(180deg, rgba(85,182,255,.22), rgba(85,182,255,.10));
+  background: rgba(255,255,255,.10);
+  border-color: rgba(255,255,255,.18);
 }
 .btnGhost{ background:rgba(255,255,255,.03); }
 
@@ -184,7 +181,7 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   gap:8px;
   padding:10px 10px;
   border-radius:16px;
-  border:1px solid rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
   background:rgba(255,255,255,.03);
   color:var(--muted);
   font-weight:900;
@@ -194,8 +191,8 @@ input::placeholder{ color:rgba(232,238,247,.35); }
 .cardMini{
   padding:10px;
   border-radius:var(--radius2);
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(15,22,32,.55);
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.10);
 }
 .miniHead{
   display:flex;
@@ -214,7 +211,7 @@ input::placeholder{ color:rgba(232,238,247,.35); }
 }
 .rangeRow button{
   border-radius:14px;
-  border:1px solid rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
   background:rgba(255,255,255,.03);
   color:var(--text);
   font-weight:950;
@@ -231,8 +228,8 @@ input::placeholder{ color:rgba(232,238,247,.35); }
 }
 .li{
   border-radius:18px;
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(15,22,32,.55);
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.10);
   overflow:hidden;
 }
 .liHead{
@@ -263,9 +260,9 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   height: calc(100vh - 250px);
   min-height: 520px;
   border-radius: var(--radius);
-  border:1px solid rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.10);
   overflow:hidden;
-  background:rgba(0,0,0,.18);
+  background: rgba(0,0,0,.10);
 }
 .timeline{
   height:100%;
@@ -274,27 +271,28 @@ input::placeholder{ color:rgba(232,238,247,.35); }
 }
 
 .day{
+  padding:12px;
+  border-bottom:1px solid rgba(255,255,255,.10);
+}
+
+.dayHeader{
+  font-weight:950;
+  letter-spacing:.06em;
+  color:rgba(232,238,247,.92);
+  margin-bottom:10px; /* 時間が隠れないように上に置く */
+}
+
+.dayGrid{
   display:flex;
   gap:10px;
-  padding:12px;
-  border-bottom:1px solid rgba(255,255,255,.08);
 }
+
 .axis{
   width:58px;
   flex:0 0 58px;
   position:relative;
   color:rgba(232,238,247,.55);
   font-variant-numeric: tabular-nums;
-}
-.dayTag{
-  position:sticky;
-  top:0;
-  z-index:5;
-  padding:8px 0 12px 0;
-  font-weight:950;
-  color:rgba(232,238,247,.90);
-  background:linear-gradient(180deg, rgba(11,15,20,.92), rgba(11,15,20,.62));
-  backdrop-filter: blur(8px);
 }
 .hourLabel{
   position:absolute;
@@ -307,7 +305,7 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   flex:1;
   position:relative;
   border-radius:18px;
-  border:1px solid rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.10);
   background:
     repeating-linear-gradient(
       to bottom,
@@ -326,10 +324,11 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   border-radius:20px;
   padding:10px 12px;
   background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
   border-left:10px solid var(--gray);
   box-shadow: 0 10px 30px rgba(0,0,0,.22);
   overflow:hidden;
+  cursor:pointer; /* タッチ編集 */
 }
 .blockTitle{ font-weight:950; letter-spacing:.03em; }
 .blockMeta{
@@ -346,20 +345,15 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   gap:6px;
   padding:4px 8px;
   border-radius:999px;
-  border:1px solid rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
   background:rgba(0,0,0,.18);
-}
-.badgeLink{
-  text-decoration:none;
-  color:var(--text);
-  font-weight:950;
 }
 
 .nowLine{
   position:absolute;
   left:0;
   right:0;
-  border-top:2px dashed rgba(255,255,255,.80);
+  border-top:2px dashed rgba(255,255,255,.85);
   z-index:6;
 }
 .nowTag{
@@ -372,5 +366,60 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   padding:4px 8px;
   border-radius:999px;
   background:rgba(0,0,0,.35);
-  border:1px solid rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.14);
+}
+
+/* 就寝がまたぐ表示（見た目で「続き」を分かるように） */
+.block.contOut{
+  border-bottom-left-radius:6px;
+  border-bottom-right-radius:6px;
+}
+.block.contIn{
+  border-top-left-radius:6px;
+  border-top-right-radius:6px;
+}
+
+/* Editor sheet */
+.sheet{
+  position:fixed;
+  inset:0;
+  z-index:100;
+  background: rgba(0,0,0,.55);
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  padding:12px;
+}
+.sheetCard{
+  width:100%;
+  max-width:520px;
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.14);
+  background: var(--panel);
+  overflow:hidden;
+}
+.sheetHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:12px;
+  border-bottom:1px solid rgba(255,255,255,.10);
+}
+.sheetTitle{
+  font-weight:950;
+  letter-spacing:.06em;
+}
+.sheetBody{
+  padding:12px;
+  display:grid;
+  grid-template-columns: 1fr;
+  gap:10px;
+}
+.sheetFoot{
+  padding:12px;
+  border-top:1px solid rgba(255,255,255,.10);
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
   }
