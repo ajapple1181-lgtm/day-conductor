@@ -431,3 +431,6 @@ input::placeholder{ color:rgba(232,238,247,.35); }
   justify-content:flex-end;
   margin-top:14px;
   }
+
+/* hidden属性を最優先で非表示にする */
+[hidden] { display: none !important; }
