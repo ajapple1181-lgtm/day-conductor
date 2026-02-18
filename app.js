@@ -1,79 +1,84 @@
-"use strict";
+/* =========================================================
+   Day Conductor — Daily schedule planner (vanilla JS)
+   - GitHub Pages 用 app.js（index.html は #app を置くだけ）
+   - 生活設定 + 勉強リスト + タイムライン + 勉強実行（Runner）
+   ========================================================= */
 
-window.addEventListener("DOMContentLoaded", () => {
-  const LS_KEY = "daily_planner_v14"; // データ保持のためキーは維持
-  const DAY_MIN = 1440;
-  const PX_PER_MIN = 1.25;
+/* ===== Boot ===== */
+(() => {
+  "use strict";
 
-  const SLEEP_NEXT_DAY_THRESHOLD_MIN = 6 * 60; // 00:00-05:59は翌日に就寝を置く
-  const MAX_SLEEP_HOURS = 9;
+  /* ===== Constants ===== */
+  const LS_KEY = "day_conductor_v6";
+  const PX_PER_MIN = 1.25; // タイムラインの縦スケール
+  const MIN_BLOCK_PX = 44; // 短時間でも読める最小高さ
 
-  /* ===== Utils ===== */
-  const $ = (q) => document.querySelector(q);
-  const $$ = (q) => Array.from(document.querySelectorAll(q));
-  const pad2 = (n) => String(n).padStart(2, "0");
-  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
-  const uid = () => Math.random().toString(16).slice(2) + Date.now().toString(16);
-
-  const fmtDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-  const parseDate = (iso) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
-    if (!m) return null;
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  };
-  const addDays = (iso, delta) => {
-    const d = parseDate(iso) || new Date();
-    d.setDate(d.getDate() + delta);
-    return fmtDate(d);
-  };
-
-  const dowName = (d) => ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
-
-  const minutesOf = (hhmm) => {
-    const m = /^(\d{2}):(\d{2})$/.exec(String(hhmm || "").trim());
-    if (!m) return null;
-    const hh = Number(m[1]), mm = Number(m[2]);
-    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-    return hh * 60 + mm;
-  };
-  const hhmmOf = (min) => {
-    min = ((min % 1440) + 1440) % 1440;
-    return `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
+  const COLORS = {
+    kokugo: "#ff5aa7",
+    math: "#41cfff",
+    english: "#a45bff",
+    science: "#7dff69",
+    social: "#ffd84a",
+    other: "#9aa3ad",
+    bg: "#0b0f17",
+    panel: "#0f1521",
+    card: "#111a2a",
+    line: "rgba(255,255,255,.08)",
+    text: "#f0f4ff",
+    sub: "rgba(240,244,255,.72)",
   };
 
-  const setHidden = (el, v) => { if (el) el.hidden = !!v; };
-  const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
-  const fmtMS = (sec) => {
-    sec = Math.max(0, Math.floor(sec || 0));
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    const hh = Math.floor(m / 60);
-    const mm = m % 60;
-    if (hh > 0) return `${hh}:${pad2(mm)}:${pad2(s)}`;
-    return `${mm}:${pad2(s)}`;
+  const RETURN_MOVE_OPTIONS = [
+    { value: "60", label: "60分" },
+    { value: "30", label: "30分" },
+    { value: "30x2", label: "30分×2（途中で帰宅）" },
+  ];
+
+  const LIFE_TYPE_OPTIONS = [
+    { value: "-", label: "-" },
+    { value: "移動", label: "移動" },
+    { value: "食事", label: "食事" },
+    { value: "風呂", label: "風呂" },
+    { value: "準備", label: "準備" },
+    { value: "就寝", label: "就寝" },
+    { value: "ラジオ", label: "ラジオ" },
+    { value: "テレビ", label: "テレビ" },
+    { value: "爪切り", label: "爪切り" },
+    { value: "散髪", label: "散髪" },
+  ];
+
+  const LIFE_DEFAULT_MIN_BY_TYPE = {
+    "移動": 30,
+    "食事": 30,
+    "風呂": 60,
+    "準備": 15,
+    "ラジオ": 60,
+    "テレビ": 60,
+    "爪切り": 15,
+    "散髪": 60,
   };
 
-  /* ===== Options ===== */
-  const CATEGORY_COLORS = {
-    "国語系": cssVar("--pink"),
-    "数学系": cssVar("--blue"),
-    "英語系": cssVar("--purple"),
-    "理科系": cssVar("--green"),
-    "社会系": cssVar("--yellow"),
-    "その他": cssVar("--gray"),
+  const STUDY_SYSTEMS = [
+    { key: "kokugo", label: "国語系", color: COLORS.kokugo },
+    { key: "math", label: "数学系", color: COLORS.math },
+    { key: "english", label: "英語系", color: COLORS.english },
+    { key: "science", label: "理科系", color: COLORS.science },
+    { key: "social", label: "社会系", color: COLORS.social },
+    { key: "other", label: "その他", color: COLORS.other },
+  ];
+
+  const SUBJECTS_BY_SYSTEM = {
+    kokugo: ["論国", "古典"],
+    math: ["数学Ⅲ", "数学C"],
+    english: ["英C", "論表"],
+    science: ["化学", "生物"],
+    social: ["地理", "公共"],
+    other: ["その他"],
   };
 
-  const SUBJECTS_BY_CATEGORY = {
-    "国語系": ["論国", "古典"],
-    "数学系": ["数学Ⅲ", "数学C"],
-    "英語系": ["英C", "論表"],
-    "理科系": ["化学", "生物"],
-    "社会系": ["地理", "公共"],
-    "その他": ["その他"],
-  };
-
-  const TASK_OPTIONS_BY_SUBJECT = {
+  const TASK_TYPES_BY_SUBJECT = {
     "論国": ["教科書", "漢字", "現代文課題"],
     "古典": ["教科書", "古文単語", "古文課題", "漢文課題"],
     "数学Ⅲ": ["予習", "復習", "4STEP", "課題"],
@@ -86,1770 +91,2552 @@ window.addEventListener("DOMContentLoaded", () => {
     "公共": ["教科書"],
   };
 
-  const LIFE_TYPES = ["-", "就寝", "食事", "移動", "授業", "部活", "準備", "風呂"];
-  const LIFE_DEFAULT_MIN = {
-    "移動": 30,
-    "食事": 30,
-    "風呂": 60,
-    "準備": 15,
-    "就寝": 420,
-    "授業": 360,
-    "部活": 120
-  };
-
-  const uniq = (arr) => {
-    const s = new Set();
-    const out = [];
-    for (const x of arr) {
-      const k = String(x);
-      if (!s.has(k)) { s.add(k); out.push(x); }
-    }
-    return out;
+  // 生活テンプレ（画像1〜4をテンプレ化）
+  const LIFE_TEMPLATES = {
+    mwf: { // 1枚目：月水金（授業＋部活）
+      templateKey: "mwf",
+      school: "あり",
+      club: "あり",
+      morningMoveStart: "7:30",
+      morningMoveMin: 60,
+      classStart: "8:30",
+      classEnd: "15:00",
+      clubStart: "15:00",
+      clubEnd: "18:30",
+      returnMoveMode: "60",
+      second30Start: "20:00",
+      bath: "あり",
+      bathMin: 60,
+      prep: "あり",
+      prepMin: 15,
+      sleepUse: "あり",
+      sleepTime: "1:00",
+      wakeTime: "7:05",
+    },
+    thf: { // 2枚目：木金（授業あり・部活なし）
+      templateKey: "thf",
+      school: "あり",
+      club: "なし",
+      morningMoveStart: "7:30",
+      morningMoveMin: 60,
+      classStart: "8:30",
+      classEnd: "16:00",
+      clubStart: "",
+      clubEnd: "",
+      returnMoveMode: "30x2",
+      second30Start: "20:00",
+      bath: "あり",
+      bathMin: 60,
+      prep: "あり",
+      prepMin: 15,
+      sleepUse: "あり",
+      sleepTime: "1:00",
+      wakeTime: "7:05",
+    },
+    sat: { // 3枚目：土曜（部活あり・授業なし）
+      templateKey: "sat",
+      school: "なし",
+      club: "あり",
+      morningMoveStart: "7:00",
+      morningMoveMin: 60,
+      classStart: "",
+      classEnd: "",
+      clubStart: "8:00",
+      clubEnd: "12:30",
+      returnMoveMode: "30x2",
+      second30Start: "18:15",
+      bath: "あり",
+      bathMin: 60,
+      prep: "なし",
+      prepMin: 15,
+      sleepUse: "あり",
+      sleepTime: "1:00",
+      wakeTime: "8:00",
+    },
+    sun: { // 4枚目：日曜（授業なし・部活なし）※帰りの移動は 30分
+      templateKey: "sun",
+      school: "なし",
+      club: "なし",
+      morningMoveStart: "9:00",
+      morningMoveMin: 30,
+      classStart: "",
+      classEnd: "",
+      clubStart: "",
+      clubEnd: "",
+      returnMoveMode: "30",
+      second30Start: "18:15",
+      bath: "あり",
+      bathMin: 60,
+      prep: "あり",
+      prepMin: 15,
+      sleepUse: "あり",
+      sleepTime: "1:00",
+      wakeTime: "7:05",
+    },
   };
 
   /* ===== State ===== */
-  const blankRoutine = () => ({
-    schoolOn: "off",
-    clubOn: "off",
-    commuteAMStart: "07:30",
-    commuteAMMin: 60,
-    schoolStart: "08:30",
-    schoolEnd: "15:00",
-    clubStart: "16:10",
-    clubEnd: "18:30",
-    returnMode: "60",
-    return2Start: "19:00",
-
-    bathOn: "off",
-    bathMin: 60,
-    prepOn: "off",
-    prepMin: 15,
-
-    sleepOn: "off",
-    sleepStart: "23:30",
-    wakeTime: "06:30"
-  });
-
-  const freshState = () => {
-    const today = fmtDate(new Date());
-    return {
-      routineByDate: {},
-      lifeByDate: {},
-      studyByDate: {},
-      planCache: {},     // { [date]: { blocks, overflow, excludedTaskIds } }
-      progressByTask: {},
-      runner: {
-        activeTaskId: null,
-        isRunning: false,
-        lastTick: 0,
-        pausedByUser: false,      // UI上は一時停止を削除したので基本falseのまま
-        lastAutoTaskId: null,
-        arrivalShownTaskId: null, // ★到着ループ防止
-      },
-      ui: {
-        activeTab: "life",
-        lifeDate: today,
-        studyDate: today,
-        loadedStart: addDays(today, -2),
-        loadedEnd: addDays(today, 10),
-      }
-    };
-  };
-
-  const sanitizeState = (s) => {
-    const base = freshState();
-    s = s && typeof s === "object" ? s : {};
-    return {
-      ...base,
-      ...s,
-      routineByDate: s.routineByDate || {},
-      lifeByDate: s.lifeByDate || {},
-      studyByDate: s.studyByDate || {},
-      planCache: s.planCache || {},
-      progressByTask: s.progressByTask || {},
-      runner: { ...base.runner, ...(s.runner || {}) },
-      ui: { ...base.ui, ...(s.ui || {}) }
-    };
-  };
-
-  const loadState = () => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) return sanitizeState(JSON.parse(raw));
-      return freshState();
-    } catch {
-      return freshState();
+  const state = loadState() || {
+    view: "timeline", // 初期はタイムライン
+    selectedDate: dateKeyFromDate(new Date()),
+    lifeByDate: {},
+    lifeBlocksByDate: {},
+    studyTasksByDate: {},
+    progressByTask: {},
+    runner: {
+      activeTaskId: null,
+      isRunning: false,
+      lastTick: 0,
+      pausedByUser: false,     // UI削除してるが内部で保持
+      arrivalShownTaskId: null // 到着ループ防止
+    },
+    ui: {
+      modalOpen: false,
+      modalTitle: "",
     }
   };
 
-  let state = loadState();
-  const saveState = () => localStorage.setItem(LS_KEY, JSON.stringify(state));
+  /* ===== Root ===== */
+  injectCSS();
+  const root = document.getElementById("app");
+  if (!root) {
+    console.error('index.html に <div id="app"></div> が必要です');
+    return;
+  }
 
-  /* ===== DOM ===== */
-  const clockText = $("#clockText");
-  const btnJumpNow = $("#btnJumpNow");
+  /* ===== Render Loop ===== */
+  let runnerUiTimer = null;
+  let tickTimer = null;
 
-  const remainPill = $("#studyRemain");
-  const remainSubj = $("#remainSubj");
-  const remainTime = $("#remainTime");
+  function render() {
+    root.innerHTML = "";
 
-  const tabs = $$(".tab");
-  const panelLife = $("#tabLife");
-  const panelStudy = $("#tabStudy");
-  const panelTimeline = $("#tabTimeline");
+    const app = el("div", { class: "app" });
 
-  // routine
-  const lifeDate = $("#lifeDate");
+    app.appendChild(renderTopBar());
+    app.appendChild(renderTabs());
 
-  const routineSchoolOn = $("#routineSchoolOn");
-  const routineClubOn = $("#routineClubOn");
+    const content = el("div", { class: "content" });
 
-  const routineCommuteWrap = $("#routineCommuteWrap");
-  const routineCommuteAMStart = $("#routineCommuteAMStart");
-  const routineCommuteAMMin = $("#routineCommuteAMMin");
+    if (state.view === "life") content.appendChild(renderLifeView());
+    if (state.view === "study") content.appendChild(renderStudyView());
+    if (state.view === "timeline") content.appendChild(renderTimelineView());
 
-  const routineSchoolWrap = $("#routineSchoolWrap");
-  const routineSchoolStart = $("#routineSchoolStart");
-  const routineSchoolEnd = $("#routineSchoolEnd");
+    app.appendChild(content);
+    app.appendChild(renderModalLayer());
 
-  const routineClubEndWrap = $("#routineClubEndWrap");
-  const routineClubStart = $("#routineClubStart");
-  const routineClubEnd = $("#routineClubEnd");
+    root.appendChild(app);
 
-  const routineReturnWrap = $("#routineReturnWrap");
-  const routineReturnMode = $("#routineReturnMode");
-  const return60Wrap = $("#return60Wrap");
-  const return30Wrap = $("#return30Wrap");
-  const routineReturn2Start = $("#routineReturn2Start");
+    // RunnerのUIタイマー（モーダルが開いていなくても残りが動くように）
+    if (runnerUiTimer) { clearInterval(runnerUiTimer); runnerUiTimer = null; }
+    runnerUiTimer = setInterval(() => {
+      // TOPの残り時間を更新するために軽く再描画（重くしないため部分更新）
+      updateTopBarDynamic();
+      // モーダルが開いている場合は runner の残りも更新
+      const runnerPane = document.querySelector("[data-runner-pane='1']");
+      if (runnerPane) {
+        const taskId = runnerPane.getAttribute("data-taskid");
+        if (taskId) updateRunnerPane(taskId);
+      }
+    }, 250);
+  }
 
-  const routineBathOn = $("#routineBathOn");
-  const routineBathMinWrap = $("#routineBathMinWrap");
-  const routineBathMin = $("#routineBathMin");
+  /* ===== Top Bar ===== */
+  function renderTopBar() {
+    const bar = el("div", { class: "topbar" });
 
-  const routinePrepOn = $("#routinePrepOn");
-  const routinePrepMinWrap = $("#routinePrepMinWrap");
-  const routinePrepMin = $("#routinePrepMin");
+    // 左：タイトル
+    const left = el("div", { class: "topbarLeft" }, [
+      el("div", { class: "brandTitle" }, ["Daily schedule planner"]),
+    ]);
 
-  const routineSleepOn = $("#routineSleepOn");
-  const routineSleepWrap = $("#routineSleepWrap");
-  const routineSleepStart = $("#routineSleepStart");
-  const routineWake = $("#routineWake");
+    // 中：勉強の残り（今いるブロックの終了まで）
+    const mid = el("div", { class: "topbarMid", id: "topRemainWrap" });
 
-  const routineHint = $("#routineHint");
+    // 右：現在時刻 / NOW
+    const right = el("div", { class: "topbarRight" }, [
+      el("div", { class: "clock", id: "topClock" }, [fmtHM(new Date())]),
+      mkBtn("NOW", "btnGhost", () => scrollToNow()),
+    ]);
 
-  // life add
-  const lifeType = $("#lifeType");
-  const lifeCustomWrap = $("#lifeCustomWrap");
-  const lifeCustom = $("#lifeCustom");
-  const lifeDurationBox = $("#lifeDurationBox");
-  const lifeRangeBox = $("#lifeRangeBox");
-  const lifeStart = $("#lifeStart");
-  const lifeMin = $("#lifeMin");
-  const lifeFrom = $("#lifeFrom");
-  const lifeTo = $("#lifeTo");
-  const btnAddLife = $("#btnAddLife");
-  const btnClearLifeDay = $("#btnClearLifeDay");
-  const lifeAddHint = $("#lifeAddHint");
-  const lifeList = $("#lifeList");
+    bar.appendChild(left);
+    bar.appendChild(mid);
+    bar.appendChild(right);
 
-  // study
-  const studyDate = $("#studyDate");
-  const studyCategory = $("#studyCategory");
-  const studySubject = $("#studySubject");
-  const studyOtherSubjectWrap = $("#studyOtherSubjectWrap");
-  const studyOtherSubject = $("#studyOtherSubject");
-  const studyTaskType = $("#studyTaskType");
-  const studyTaskFreeWrap = $("#studyTaskFreeWrap");
-  const studyTaskFree = $("#studyTaskFree");
-  const btnAddRange = $("#btnAddRange");
-  const rangesList = $("#rangesList");
-  const studyPerRangeMin = $("#studyPerRangeMin");
-  const studyMin = $("#studyMin");
-  const studyDeadline = $("#studyDeadline");
-  const btnAddStudy = $("#btnAddStudy");
-  const btnClearStudyDay = $("#btnClearStudyDay");
-  const btnAutoBuild = $("#btnAutoBuild");
-  const studyList = $("#studyList");
-  const studyAddHint = $("#studyAddHint");
-  const overflowHint = $("#overflowHint");
+    // 初回描画
+    setTimeout(updateTopBarDynamic, 0);
 
-  // timeline
-  const timeline = $("#timeline");
+    return bar;
+  }
 
-  // editor
-  const editor = $("#editor");
-  const editorTitle = $("#editorTitle");
-  const editorBody = $("#editorBody");
-  const editorFoot = $("#editorFoot");
-  const editorCancel = $("#editorCancel");
+  function updateTopBarDynamic() {
+    const clock = document.getElementById("topClock");
+    if (clock) clock.textContent = fmtHM(new Date());
+
+    const wrap = document.getElementById("topRemainWrap");
+    if (!wrap) return;
+
+    // NOWから今のブロック終了まで（勉強以外でも表示はするが、勉強なら科目も出す）
+    const nowBlock = getNowBlockFromTimelineCache();
+    const remainSec = getRemainSecToCurrentBlockEnd();
+
+    wrap.innerHTML = "";
+    if (!nowBlock || remainSec == null) {
+      wrap.appendChild(el("div", { class: "remainPill", style: "opacity:.55" }, [
+        el("div", { class: "remainSub" }, ["—"]),
+        el("div", { class: "remainBig" }, ["—:—"]),
+      ]));
+      return;
+    }
+
+    const isStudy = nowBlock.kind === "study";
+    const label = isStudy ? (nowBlock.subject || "勉強") : (nowBlock.title || "生活");
+    wrap.appendChild(el("div", { class: "remainPill" }, [
+      el("div", { class: "remainSub" }, [label]),
+      el("div", { class: "remainBig" }, [fmtMS(remainSec)]),
+    ]));
+  }
 
   /* ===== Tabs ===== */
-  const setTab = (name) => {
-    state.ui.activeTab = name;
-    saveState();
-    tabs.forEach(b => b.classList.toggle("is-active", b.dataset.tab === name));
-    panelLife.classList.toggle("is-active", name === "life");
-    panelStudy.classList.toggle("is-active", name === "study");
-    panelTimeline.classList.toggle("is-active", name === "timeline");
+  function renderTabs() {
+    const tabs = el("div", { class: "tabs" });
 
-    if (name === "timeline") {
-      setTimeout(() => jumpToDay(fmtDate(new Date()), true), 60);
-    }
-  };
-  tabs.forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+    const mkTab = (key, label) => {
+      const b = el("button", { class: "tab" + (state.view === key ? " isActive" : ""), type: "button" }, [label]);
+      b.addEventListener("click", () => {
+        state.view = key;
+        saveState();
+        render();
+        // タイムラインに移動したらNOWへ
+        if (key === "timeline") setTimeout(scrollToNow, 30);
+      });
+      return b;
+    };
 
-  /* ===== Select init ===== */
-  const addOpt = (sel, val, label) => {
-    const o = document.createElement("option");
-    o.value = val;
-    o.textContent = label;
-    sel.appendChild(o);
-  };
+    tabs.appendChild(mkTab("life", "生活"));
+    tabs.appendChild(mkTab("study", "勉強"));
+    tabs.appendChild(mkTab("timeline", "タイムライン"));
 
-  function fillReturn2Options() {
-    routineReturn2Start.innerHTML = "";
-    for (let h = 17; h <= 21; h++) {
-      for (const m of [0, 15, 30]) {
-        if (h === 21 && m > 30) continue;
-        const t = `${pad2(h)}:${pad2(m)}`;
-        addOpt(routineReturn2Start, t, t);
-      }
-    }
+    return tabs;
   }
 
-  function initSelects() {
-    lifeType.innerHTML = "";
-    LIFE_TYPES.forEach(x => addOpt(lifeType, x, x));
+  /* =========================================================
+     LIFE VIEW
+     ========================================================= */
+  function renderLifeView() {
+    const wrap = el("div", { class: "panel" });
 
-    studyCategory.innerHTML = "";
-    addOpt(studyCategory, "", "—");
-    Object.keys(SUBJECTS_BY_CATEGORY).forEach(cat => addOpt(studyCategory, cat, cat));
+    const dateRow = renderDateRow();
+    wrap.appendChild(dateRow);
 
-    fillReturn2Options();
-    if (rangesList.children.length === 0) addRangeRow();
-  }
+    const L = getLifeSettings(state.selectedDate);
 
-  /* ===== Range expansion ===== */
-  function parseLeadingInt(token) {
-    const t = String(token || "").trim();
-    const m = /^(-?\d+)(.*)$/.exec(t);
-    if (!m) return null;
-    const n = parseInt(m[1], 10);
-    if (String(n) !== m[1]) return null;
-    return { num: n, rest: m[2] || "" };
-  }
+    // 生活設定パネル
+    const box = el("div", { class: "card" });
+    box.appendChild(el("div", { class: "cardTitle" }, ["この日の生活設定"]));
 
-  function computeRangeSteps(ranges) {
-    const out = [];
-    for (const r of ranges) {
-      const a = (r.start || "").trim();
-      const b = (r.end || "").trim();
-      if (!a && !b) continue;
+    // テンプレ
+    const tplRow = el("div", { class: "grid2" });
+    const tplSel = mkSelect([
+      { value: "", label: "テンプレを選択" },
+      { value: "mwf", label: "月水金（授業＋部活）" },
+      { value: "thf", label: "木金（授業のみ）" },
+      { value: "sat", label: "土曜（部活のみ）" },
+      { value: "sun", label: "日曜（なし）" },
+    ], L.templateKey || "");
+    tplSel.addEventListener("change", () => {
+      const k = tplSel.value;
+      if (!k) return;
+      applyLifeTemplate(state.selectedDate, k);
+      render();
+    });
+    tplRow.appendChild(labeled("テンプレ", tplSel));
+    tplRow.appendChild(el("div", { class: "mutedSmall" }, ["テンプレはこの日の設定に反映されます。"]));
+    box.appendChild(tplRow);
 
-      const pa = parseLeadingInt(a);
-      const pb = parseLeadingInt(b);
+    // 授業・部活の有無
+    const onOffRow = el("div", { class: "grid2" });
+    const schoolSel = mkSelect([{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }], L.school);
+    const clubSel = mkSelect([{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }], L.club);
 
-      if (pa && pb) {
-        if (pa.num === pb.num) { out.push(a || b); continue; }
-        const step = pa.num < pb.num ? 1 : -1;
-        out.push(a);
-        for (let v = pa.num + step; step === 1 ? v < pb.num : v > pb.num; v += step) out.push(String(v));
-        out.push(b);
-        continue;
-      }
-      out.push(a || b);
-    }
-    return out;
-  }
+    schoolSel.addEventListener("change", () => { L.school = schoolSel.value; saveState(); render(); });
+    clubSel.addEventListener("change", () => { L.club = clubSel.value; saveState(); render(); });
 
-  function computeDurationFromPerRange(perRangeMin, ranges) {
-    const per = Number.isFinite(perRangeMin) ? perRangeMin : null;
-    if (!per || per <= 0) return null;
-    const steps = computeRangeSteps(ranges);
-    const count = Math.max(1, steps.length || 0);
-    return per * count;
-  }
+    onOffRow.appendChild(labeled("授業", schoolSel));
+    onOffRow.appendChild(labeled("部活", clubSel));
+    box.appendChild(onOffRow);
 
-  /* ===== Editor ===== */
-  let runnerUiTimer = null;
+    // 授業/部活が「あり」のときだけ細目表示
+    const showMorning = (L.school === "あり" || L.club === "あり");
+    if (showMorning) {
+      const g = el("div", { class: "grid2" });
 
-  function mkBtn(text, cls, onClick) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = `btn ${cls || ""}`.trim();
-    b.textContent = text;
-    b.addEventListener("click", onClick);
-    return b;
-  }
+      const morningStartSel = mkTimeSelect(L.morningMoveStart || "7:30");
+      const morningMin = mkNumber(L.morningMoveMin ?? 60, 0, 240, 5);
+      morningStartSel.addEventListener("change", () => { L.morningMoveStart = morningStartSel.value; saveState(); });
+      morningMin.addEventListener("change", () => { L.morningMoveMin = clampInt(morningMin.value, 0, 240); saveState(); });
 
-  function openEditor(title, bodyNode, footButtons) {
-    editorTitle.textContent = title;
-    editorBody.innerHTML = "";
-    editorFoot.innerHTML = "";
-    editorBody.appendChild(bodyNode);
-    footButtons.forEach(b => editorFoot.appendChild(b));
-    setHidden(editor, false);
-  }
+      g.appendChild(labeled("朝の移動 開始", morningStartSel));
+      g.appendChild(labeled("朝の移動（分）", morningMin));
 
-  function closeEditor() {
-    if (runnerUiTimer) { clearInterval(runnerUiTimer); runnerUiTimer = null; }
-    setHidden(editor, true);
-  }
-  editorCancel.addEventListener("click", closeEditor);
-
-  /* ===== Routine logic ===== */
-  const peekRoutine = (date) => state.routineByDate[date] || null;
-
-  function getRoutine(date) {
-    return peekRoutine(date) || blankRoutine();
-  }
-
-  function setRoutine(date, patch) {
-    const base = peekRoutine(date) || blankRoutine();
-    state.routineByDate[date] = { ...base, ...patch };
-    delete state.planCache[date];
-    delete state.planCache[addDays(date, 1)];
-    saveState();
-  }
-
-  function updateRoutineVisibility() {
-    const schoolOn = routineSchoolOn.value === "on";
-    const clubOn = routineClubOn.value === "on";
-
-    setHidden(routineCommuteWrap, !(schoolOn || clubOn));
-    setHidden(routineReturnWrap, !(schoolOn || clubOn));
-
-    setHidden(routineSchoolWrap, !schoolOn);
-    setHidden(routineClubEndWrap, !clubOn);
-
-    setHidden(return60Wrap, routineReturnMode.value !== "60");
-    setHidden(return30Wrap, routineReturnMode.value !== "30x2");
-
-    const bathOn = routineBathOn.value === "on";
-    setHidden(routineBathMinWrap, !bathOn);
-
-    const prepOn = routinePrepOn.value === "on";
-    setHidden(routinePrepMinWrap, !prepOn);
-
-    const sleepOn = routineSleepOn.value === "on";
-    setHidden(routineSleepWrap, !sleepOn);
-  }
-
-  function applyRoutineToUI(date) {
-    const r = getRoutine(date);
-
-    routineSchoolOn.value = r.schoolOn || "off";
-    routineClubOn.value = r.clubOn || "off";
-
-    routineCommuteAMStart.value = r.commuteAMStart || "07:30";
-    routineCommuteAMMin.value = String(r.commuteAMMin ?? 60);
-
-    routineSchoolStart.value = r.schoolStart || "08:30";
-    routineSchoolEnd.value = r.schoolEnd || "15:00";
-
-    routineClubStart.value = r.clubStart || "16:10";
-    routineClubEnd.value = r.clubEnd || "18:30";
-
-    routineReturnMode.value = r.returnMode || "60";
-    routineReturn2Start.value = r.return2Start || "19:00";
-
-    routineBathOn.value = r.bathOn || "off";
-    routineBathMin.value = String(r.bathMin ?? 60);
-
-    routinePrepOn.value = r.prepOn || "off";
-    routinePrepMin.value = String(r.prepMin ?? 15);
-
-    routineSleepOn.value = r.sleepOn || "off";
-    routineSleepStart.value = r.sleepStart || "23:30";
-    routineWake.value = r.wakeTime || "06:30";
-
-    updateRoutineVisibility();
-    validateRoutine(date);
-  }
-
-  function splitCrossMidnight(baseDate, startMin, endMin) {
-    let s0 = startMin;
-    let e0 = endMin;
-    if (e0 <= s0) e0 += 1440;
-
-    const d0 = baseDate;
-    const d1 = addDays(baseDate, 1);
-    const parts = [];
-
-    if (s0 < 1440 && e0 <= 1440) {
-      parts.push({ date: d0, startMin: s0, endMin: e0, dispStart: s0, dispEnd: e0, contOut: false, contIn: false });
-      return parts;
-    }
-    if (s0 < 1440 && e0 > 1440) {
-      parts.push({ date: d0, startMin: s0, endMin: 1440, dispStart: s0, dispEnd: e0, contOut: true, contIn: false });
-      parts.push({ date: d1, startMin: 0, endMin: e0 - 1440, dispStart: s0, dispEnd: e0, contOut: false, contIn: true });
-      return parts;
-    }
-    parts.push({ date: d1, startMin: s0 - 1440, endMin: e0 - 1440, dispStart: s0, dispEnd: e0, contOut: false, contIn: true });
-    return parts;
-  }
-
-  function hasOverlap(segments) {
-    const list = segments
-      .map(x => ({ start: x.startMin, end: x.endMin }))
-      .filter(x => x.end > x.start)
-      .sort((a, b) => a.start - b.start);
-
-    for (let i = 1; i < list.length; i++) {
-      if (list[i].start < list[i - 1].end) return true;
-    }
-    return false;
-  }
-
-  function validateRoutine(date) {
-    const blocks = routineBlocksForDate(date);
-    const segs = blocks.map(b => ({ startMin: b.startMin, endMin: b.endMin }));
-    const ok = !hasOverlap(segs);
-    setHidden(routineHint, ok);
-    return ok;
-  }
-
-  function sleepBaseDateForRoutineDate(date, sleepStartMin) {
-    if (sleepStartMin == null) return date;
-    if (sleepStartMin < SLEEP_NEXT_DAY_THRESHOLD_MIN) return addDays(date, 1);
-    return date;
-  }
-  function computeWakeDiffMin(sleepStartMin, wakeMin) {
-    let diff = ((wakeMin - sleepStartMin) + 1440) % 1440;
-    if (diff <= 0) diff += 1440;
-    const max = MAX_SLEEP_HOURS * 60;
-    if (diff > max) diff = max;
-    return diff;
-  }
-
-  function routineBlocksForRoutineDate(date) {
-    const rSaved = peekRoutine(date);
-    if (!rSaved) return [];
-
-    const r = rSaved;
-    const out = [];
-
-    const schoolOn = r.schoolOn === "on";
-    const clubOn = r.clubOn === "on";
-
-    if (schoolOn || clubOn) {
-      const a = minutesOf(r.commuteAMStart);
-      const mins = clamp(parseInt(r.commuteAMMin || "60", 10), 1, 1000);
-      if (a != null) {
-        for (const p of splitCrossMidnight(date, a, a + mins)) {
-          out.push({ kind: "life", routineDate: date, routineKey: "commuteAM", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "移動", color: cssVar("--gray") });
-        }
-      }
-    }
-
-    if (schoolOn) {
-      const s = minutesOf(r.schoolStart);
-      const e = minutesOf(r.schoolEnd);
-      if (s != null && e != null) {
-        for (const p of splitCrossMidnight(date, s, e)) {
-          out.push({ kind: "life", routineDate: date, routineKey: "school", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "授業", color: cssVar("--gray") });
-        }
-      }
-    }
-
-    if (clubOn) {
-      const s = minutesOf(r.clubStart);
-      const e = minutesOf(r.clubEnd);
-      if (s != null && e != null) {
-        for (const p of splitCrossMidnight(date, s, e)) {
-          out.push({ kind: "life", routineDate: date, routineKey: "club", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "部活", color: cssVar("--gray") });
-        }
-      }
-    }
-
-    if (schoolOn || clubOn) {
-      const schoolEnd = schoolOn ? minutesOf(r.schoolEnd) : 0;
-      const clubEnd = clubOn ? (minutesOf(r.clubEnd) ?? 0) : 0;
-      const endBase = Math.max(schoolEnd || 0, clubEnd || 0);
-
-      if (r.returnMode === "60") {
-        for (const p of splitCrossMidnight(date, endBase, endBase + 60)) {
-          out.push({ kind: "life", routineDate: date, routineKey: "return60", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "移動", color: cssVar("--gray") });
-        }
+      // 授業あり
+      if (L.school === "あり") {
+        const cs = mkTimeSelect(L.classStart || "8:30");
+        const ce = mkTimeSelect(L.classEnd || "15:00");
+        cs.addEventListener("change", () => { L.classStart = cs.value; saveState(); });
+        ce.addEventListener("change", () => { L.classEnd = ce.value; saveState(); });
+        g.appendChild(labeled("授業 開始", cs));
+        g.appendChild(labeled("授業 終了", ce));
       } else {
-        for (const p of splitCrossMidnight(date, endBase, endBase + 30)) {
-          out.push({ kind: "life", routineDate: date, routineKey: "return30_1", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "移動", color: cssVar("--gray") });
-        }
-
-        const t2 = minutesOf(r.return2Start);
-        if (t2 != null) {
-          for (const p of splitCrossMidnight(date, t2, t2 + 30)) {
-            out.push({ kind: "life", routineDate: date, routineKey: "return30_2", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "移動", color: cssVar("--gray") });
-          }
-          for (const p of splitCrossMidnight(date, t2 + 30, t2 + 60)) {
-            out.push({ kind: "life", routineDate: date, routineKey: "dinner", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "食事", color: cssVar("--gray") });
-          }
-        }
-      }
-    }
-
-    if (r.sleepOn === "on") {
-      const slStartMin = minutesOf(r.sleepStart);
-      const wakeMin = minutesOf(r.wakeTime);
-      if (slStartMin != null && wakeMin != null) {
-        const baseForSleep = sleepBaseDateForRoutineDate(date, slStartMin);
-
-        const prepOn = r.prepOn === "on";
-        const bathOn = r.bathOn === "on";
-        const prepMin = clamp(parseInt(r.prepMin || "15", 10), 1, 600);
-        const bathMin = clamp(parseInt(r.bathMin || "60", 10), 1, 600);
-
-        let cursor = slStartMin;
-        if (prepOn) {
-          const prepStart = slStartMin - prepMin;
-          for (const p of splitCrossMidnight(baseForSleep, prepStart, slStartMin)) {
-            out.push({ kind: "life", routineDate: date, routineKey: "prep", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "準備", color: cssVar("--gray") });
-          }
-          cursor = prepStart;
-        }
-
-        if (bathOn) {
-          const bathStart = cursor - bathMin;
-          for (const p of splitCrossMidnight(baseForSleep, bathStart, cursor)) {
-            out.push({ kind: "life", routineDate: date, routineKey: "bath", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "風呂", color: cssVar("--gray") });
-          }
-        }
-
-        const diff = computeWakeDiffMin(slStartMin, wakeMin);
-        const sleepEnd = slStartMin + diff;
-
-        for (const p of splitCrossMidnight(baseForSleep, slStartMin, sleepEnd)) {
-          out.push({ kind: "life", routineDate: date, routineKey: "sleep", date: p.date, startMin: p.startMin, endMin: p.endMin, dispStart: p.dispStart, dispEnd: p.dispEnd, contOut: p.contOut, contIn: p.contIn, label: "就寝", color: cssVar("--gray") });
-        }
-      }
-    }
-
-    return out;
-  }
-
-  function routineBlocksForDate(date) {
-    const prev = addDays(date, -1);
-    const a = routineBlocksForRoutineDate(date).filter(b => b.date === date);
-    const b = routineBlocksForRoutineDate(prev).filter(b => b.date === date);
-    return [...a, ...b].sort((x, y) => x.startMin - y.startMin);
-  }
-
-  /* ===== Custom life blocks ===== */
-  function customLifeBlocksForDate(date) {
-    const arrToday = state.lifeByDate[date] || [];
-    const prev = addDays(date, -1);
-    const arrPrev = state.lifeByDate[prev] || [];
-    const out = [];
-
-    for (const b of arrToday) {
-      for (const p of splitCrossMidnight(date, b.startMin, b.endMin)) {
-        out.push({
-          kind: "life",
-          isCustom: true,
-          sourceId: b.id,
-          sourceDate: date,
-          date: p.date,
-          startMin: p.startMin,
-          endMin: p.endMin,
-          dispStart: p.dispStart,
-          dispEnd: p.dispEnd,
-          contOut: p.contOut,
-          contIn: p.contIn,
-          label: b.type,
-          color: cssVar("--gray"),
-        });
-      }
-    }
-
-    for (const b of arrPrev) {
-      for (const p of splitCrossMidnight(prev, b.startMin, b.endMin)) {
-        if (p.date !== date) continue;
-        out.push({
-          kind: "life",
-          isCustom: true,
-          sourceId: b.id,
-          sourceDate: prev,
-          date: p.date,
-          startMin: p.startMin,
-          endMin: p.endMin,
-          dispStart: p.dispStart,
-          dispEnd: p.dispEnd,
-          contOut: p.contOut,
-          contIn: true,
-          label: b.type,
-          color: cssVar("--gray"),
-        });
-      }
-    }
-
-    return out;
-  }
-
-  function allLifeBlocksForDate(date) {
-    return [
-      ...routineBlocksForDate(date),
-      ...customLifeBlocksForDate(date).filter(x => x.date === date),
-    ].sort((a, b) => a.startMin - b.startMin);
-  }
-
-  /* ===== Life UI ===== */
-  const lifeMode = () => (document.querySelector('input[name="lifeMode"]:checked')?.value || "duration");
-
-  function syncLifeCustomUI() {
-    const isCustom = (lifeType.value === "-");
-    setHidden(lifeCustomWrap, !isCustom);
-    if (!isCustom) lifeCustom.value = "";
-
-    const def = LIFE_DEFAULT_MIN[lifeType.value];
-    if (def != null) lifeMin.value = String(def);
-  }
-  function syncLifeModeUI() {
-    const mode = lifeMode();
-    setHidden(lifeDurationBox, mode !== "duration");
-    setHidden(lifeRangeBox, mode !== "range");
-  }
-
-  function formatRange(b) {
-    const ds = (b.dispStart ?? b.startMin);
-    const de = (b.dispEnd ?? b.endMin);
-    return `${hhmmOf(ds)}–${hhmmOf(de)}`;
-  }
-
-  function emptyLI(text) {
-    const li = document.createElement("li");
-    li.className = "li";
-    const head = document.createElement("div");
-    head.className = "liHead";
-    head.style.borderLeftColor = cssVar("--gray");
-    const t = document.createElement("div");
-    t.className = "liTitle";
-    t.textContent = text;
-    t.style.color = "rgba(240,244,255,.70)";
-    head.appendChild(t);
-    li.appendChild(head);
-    return li;
-  }
-
-  function deleteCustomLife(sourceDate, sourceId) {
-    const arr = state.lifeByDate[sourceDate] || [];
-    state.lifeByDate[sourceDate] = arr.filter(x => x.id !== sourceId);
-
-    delete state.planCache[sourceDate];
-    delete state.planCache[addDays(sourceDate, 1)];
-    delete state.planCache[addDays(sourceDate, -1)];
-    saveState();
-
-    renderLifeList();
-    renderTimeline(true);
-  }
-
-  function openLifeInfo(date, block) {
-    const body = document.createElement("div");
-    body.className = "grid1";
-
-    const t1 = document.createElement("div");
-    t1.style.cssText = "font-weight:1000;font-size:16px;";
-    t1.textContent = block.label;
-
-    const t2 = document.createElement("div");
-    t2.style.cssText = "color:rgba(240,244,255,.72);font-weight:900;";
-    t2.textContent = `${date} / ${formatRange(block)} / ${(block.endMin - block.startMin)}分`;
-
-    body.appendChild(t1);
-    body.appendChild(t2);
-
-    openEditor("生活（確認）", body, [mkBtn("OK", "btnPrimary", closeEditor)]);
-  }
-
-  function openLifeEdit(block) {
-    openLifeInfo(block.date, block);
-  }
-
-  function renderLifeList() {
-    const date = lifeDate.value || fmtDate(new Date());
-    const blocks = allLifeBlocksForDate(date);
-
-    lifeList.innerHTML = "";
-    if (blocks.length === 0) {
-      lifeList.appendChild(emptyLI("（この日はまだありません）"));
-      return;
-    }
-
-    for (const b of blocks) {
-      const li = document.createElement("li");
-      li.className = "li";
-
-      const head = document.createElement("div");
-      head.className = "liHead";
-      head.style.borderLeftColor = cssVar("--gray");
-
-      const title = document.createElement("div");
-      title.className = "liTitle";
-      title.textContent = b.label;
-
-      const meta = document.createElement("div");
-      meta.className = "liMeta";
-      meta.textContent = `${formatRange(b)} / ${(b.endMin - b.startMin)}分`;
-
-      head.appendChild(title);
-      head.appendChild(meta);
-      li.appendChild(head);
-
-      const btns = document.createElement("div");
-      btns.className = "liBtns";
-
-      const btnEdit = mkBtn("編集", "btnGhost", () => openLifeEdit(b));
-      btns.appendChild(btnEdit);
-
-      if (b.isCustom) {
-        const btnDel = mkBtn("✕", "btnGhost", () => deleteCustomLife(b.sourceDate, b.sourceId));
-        btns.appendChild(btnDel);
+        g.appendChild(labeled("授業 開始", mkTimeSelect("")));
+        g.appendChild(labeled("授業 終了", mkTimeSelect("")));
       }
 
-      li.appendChild(btns);
-      lifeList.appendChild(li);
-    }
-  }
+      // 部活あり
+      if (L.club === "あり") {
+        const ss = mkTimeSelect(L.clubStart || "15:00");
+        const se = mkTimeSelect(L.clubEnd || "18:30");
+        ss.addEventListener("change", () => { L.clubStart = ss.value; saveState(); });
+        se.addEventListener("change", () => { L.clubEnd = se.value; saveState(); });
+        g.appendChild(labeled("部活 開始", ss));
+        g.appendChild(labeled("部活 終了", se));
+      } else {
+        g.appendChild(labeled("部活 開始", mkTimeSelect("")));
+        g.appendChild(labeled("部活 終了", mkTimeSelect("")));
+      }
 
-  /* ===== Study chain ===== */
-  function syncStudySubjectSelect() {
-    const cat = studyCategory.value;
-    studySubject.innerHTML = "";
-    addOpt(studySubject, "", "—");
+      // 帰りの移動
+      const retSel = mkSelect(RETURN_MOVE_OPTIONS, L.returnMoveMode || "60");
+      retSel.addEventListener("change", () => { L.returnMoveMode = retSel.value; saveState(); render(); });
 
-    if (!cat) {
-      studySubject.disabled = true;
-      setHidden(studyOtherSubjectWrap, true);
-      return;
-    }
+      g.appendChild(labeled("帰りの移動", retSel));
 
-    const subs = SUBJECTS_BY_CATEGORY[cat] || [];
-    subs.forEach(s => addOpt(studySubject, s, s));
+      // 2回目の30分移動開始（30x2のみ）
+      if ((L.returnMoveMode || "60") === "30x2") {
+        const secondSel = mkSelect(buildSecondMoveStarts(), L.second30Start || "20:00");
+        secondSel.addEventListener("change", () => { L.second30Start = secondSel.value; saveState(); });
+        g.appendChild(labeled("2回目の30分移動 開始", secondSel));
+      } else {
+        g.appendChild(labeled("2回目の30分移動 開始", mkSelect(buildSecondMoveStarts(), "")));
+      }
 
-    if (cat === "その他") {
-      studySubject.value = "その他";
-      studySubject.disabled = true;
-      setHidden(studyOtherSubjectWrap, false);
-    } else {
-      studySubject.disabled = false;
-      setHidden(studyOtherSubjectWrap, true);
-      studyOtherSubject.value = "";
-    }
-  }
-
-  function resolveStudySubject() {
-    const cat = studyCategory.value;
-    if (!cat) return "";
-    if (cat !== "その他") return (studySubject.value || "").trim();
-    const typed = (studyOtherSubject.value || "").trim();
-    return typed ? typed : "その他";
-  }
-
-  function syncStudyTaskTypeSelect() {
-    const cat = studyCategory.value;
-    studyTaskType.innerHTML = "";
-    addOpt(studyTaskType, "", "—");
-
-    if (!cat) {
-      studyTaskType.disabled = true;
-      setHidden(studyTaskFreeWrap, true);
-      return;
+      box.appendChild(g);
     }
 
-    const subj = resolveStudySubject();
-    let opts = TASK_OPTIONS_BY_SUBJECT[subj];
-    if (!opts) opts = uniq(["教科書", ...Object.values(TASK_OPTIONS_BY_SUBJECT).flat(), "自由入力"]);
-    else opts = uniq([...opts, "自由入力"]);
+    // 風呂/準備の有無
+    const bathRow = el("div", { class: "grid2 sepTop" });
+    const bathSel = mkSelect([{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }], L.bath);
+    const bathMin = mkNumber(L.bathMin ?? 60, 0, 180, 5);
+    bathSel.addEventListener("change", () => { L.bath = bathSel.value; saveState(); });
+    bathMin.addEventListener("change", () => { L.bathMin = clampInt(bathMin.value, 0, 180); saveState(); });
+    bathRow.appendChild(labeled("風呂", bathSel));
+    bathRow.appendChild(labeled("風呂（分）", bathMin));
+    box.appendChild(bathRow);
 
-    opts.forEach(x => addOpt(studyTaskType, x, x));
-    studyTaskType.disabled = false;
-    setHidden(studyTaskFreeWrap, studyTaskType.value !== "自由入力");
-  }
+    const prepRow = el("div", { class: "grid2" });
+    const prepSel = mkSelect([{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }], L.prep);
+    const prepMin = mkNumber(L.prepMin ?? 15, 0, 60, 5);
+    prepSel.addEventListener("change", () => { L.prep = prepSel.value; saveState(); });
+    prepMin.addEventListener("change", () => { L.prepMin = clampInt(prepMin.value, 0, 60); saveState(); });
+    prepRow.appendChild(labeled("準備", prepSel));
+    prepRow.appendChild(labeled("準備（分）", prepMin));
+    box.appendChild(prepRow);
 
-  function resolveTaskType() {
-    const raw = (studyTaskType.value || "").trim();
-    if (!raw) return "";
-    if (raw !== "自由入力") return raw;
-    return (studyTaskFree.value || "").trim();
-  }
+    // 就寝（時間）
+    const sleepRow = el("div", { class: "grid2 sepTop" });
+    const sleepUse = mkSelect([{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }], L.sleepUse);
+    sleepUse.addEventListener("change", () => { L.sleepUse = sleepUse.value; saveState(); render(); });
+    sleepRow.appendChild(labeled("就寝（この設定を使う）", sleepUse));
+    sleepRow.appendChild(el("div", {}, [""]));
+    box.appendChild(sleepRow);
 
-  function addRangeRow(prefill) {
-    const row = document.createElement("div");
-    row.className = "rangeRow";
-    row.innerHTML = `
-      <input class="rangeStart" type="text" placeholder="開始" />
-      <input class="rangeEnd" type="text" placeholder="終了" />
-      <button type="button" class="rangeDel">✕</button>
-    `;
-    row.querySelector(".rangeDel").addEventListener("click", () => {
-      row.remove();
-      if (rangesList.children.length === 0) addRangeRow();
-      autoUpdateStudyMin();
+    if (L.sleepUse === "あり") {
+      const stRow = el("div", { class: "grid2" });
+      const st = mkTimeSelect(L.sleepTime || "1:00");
+      const wt = mkTimeSelect(L.wakeTime || "7:00");
+      st.addEventListener("change", () => { L.sleepTime = st.value; enforceSleepWindow(L); saveState(); render(); });
+      wt.addEventListener("change", () => { L.wakeTime = wt.value; enforceSleepWindow(L); saveState(); render(); });
+      stRow.appendChild(labeled("就寝時刻", st));
+      stRow.appendChild(labeled("起床時刻", wt));
+      box.appendChild(stRow);
+
+      const warn = computeSleepWarnText(L);
+      if (warn) box.appendChild(el("div", { class: "warn" }, [warn]));
+    }
+
+    wrap.appendChild(box);
+
+    // 生活ブロックを追加
+    const addBox = el("div", { class: "card" });
+    addBox.appendChild(el("div", { class: "cardTitle" }, ["生活ブロックを追加"]));
+
+    const form = el("div", { class: "grid2" });
+
+    const typeSel = mkSelect(LIFE_TYPE_OPTIONS, "-");
+    const titleIn = mkInput("内容", "");
+    titleIn.placeholder = "例：病院";
+
+    // モード選択：何分間 / 時刻（開始→終了）
+    const modeRow = el("div", { class: "modeRow" });
+    const modeA = mkRadio("lifeMode", "duration", "何分間", true);
+    const modeB = mkRadio("lifeMode", "time", "時刻（開始→終了）", false);
+    modeRow.appendChild(modeA.wrap);
+    modeRow.appendChild(modeB.wrap);
+
+    // duration inputs
+    const startSelA = mkTimeSelect("");
+    const minIn = mkNumber("", 1, 600, 5);
+    minIn.placeholder = "分";
+
+    // time inputs
+    const startSelB = mkTimeSelect("");
+    const endSelB = mkTimeSelect("");
+
+    // 自動時間（編集可能）
+    typeSel.addEventListener("change", () => {
+      const t = typeSel.value;
+      if (LIFE_DEFAULT_MIN_BY_TYPE[t] != null) {
+        minIn.value = String(LIFE_DEFAULT_MIN_BY_TYPE[t]);
+      }
     });
-    if (prefill) {
-      row.querySelector(".rangeStart").value = prefill.start || "";
-      row.querySelector(".rangeEnd").value = prefill.end || "";
+
+    form.appendChild(labeled("種類", typeSel));
+    form.appendChild(labeled("内容", titleIn));
+
+    addBox.appendChild(form);
+    addBox.appendChild(modeRow);
+
+    const durGrid = el("div", { class: "grid2" });
+    durGrid.appendChild(labeled("開始", startSelA));
+    durGrid.appendChild(labeled("分", minIn));
+    addBox.appendChild(durGrid);
+
+    const timeGrid = el("div", { class: "grid2" });
+    timeGrid.appendChild(labeled("開始", startSelB));
+    timeGrid.appendChild(labeled("終了", endSelB));
+    addBox.appendChild(timeGrid);
+
+    function syncModeVis() {
+      durGrid.style.display = modeA.input.checked ? "grid" : "none";
+      timeGrid.style.display = modeB.input.checked ? "grid" : "none";
     }
-    row.querySelector(".rangeStart").addEventListener("input", autoUpdateStudyMin);
-    row.querySelector(".rangeEnd").addEventListener("input", autoUpdateStudyMin);
-    rangesList.appendChild(row);
+    modeA.input.addEventListener("change", syncModeVis);
+    modeB.input.addEventListener("change", syncModeVis);
+    syncModeVis();
+
+    const addBtnRow = el("div", { class: "row" });
+    const addBtn = mkBtn("追加", "btnPrimary", () => {
+      const type = typeSel.value;
+      const title = (titleIn.value || "").trim();
+      const display = type === "-" ? (title || "（生活）") : (title ? `${type}：${title}` : type);
+
+      const mode = modeA.input.checked ? "duration" : "time";
+      const id = uid();
+
+      if (mode === "duration") {
+        if (!startSelA.value) return toast("開始を選んでください");
+        const mins = clampInt(minIn.value, 1, 600);
+        const start = startSelA.value;
+        addLifeBlock(state.selectedDate, { id, type, title: display, mode, start, durationMin: mins });
+      } else {
+        if (!startSelB.value || !endSelB.value) return toast("開始と終了を選んでください");
+        addLifeBlock(state.selectedDate, { id, type, title: display, mode, start: startSelB.value, end: endSelB.value });
+      }
+
+      // 入力リセット（種類は - に戻す）
+      typeSel.value = "-";
+      titleIn.value = "";
+      startSelA.value = "";
+      minIn.value = "";
+      startSelB.value = "";
+      endSelB.value = "";
+      saveState();
+      render();
+    });
+
+    const clearBtn = mkBtn("この日の生活を全消去", "btnGhost", () => {
+      clearDayLife(state.selectedDate);
+      saveState();
+      render();
+    });
+
+    addBtnRow.appendChild(addBtn);
+    addBtnRow.appendChild(clearBtn);
+    addBox.appendChild(addBtnRow);
+
+    // この日の生活一覧（削除のみ）
+    const list = renderLifeBlocksList();
+    addBox.appendChild(list);
+
+    wrap.appendChild(addBox);
+
+    return wrap;
   }
 
-  function readRanges(container = document) {
-    return Array.from(container.querySelectorAll(".rangeRow")).map(r => ({
-      start: (r.querySelector(".rangeStart").value || "").trim(),
-      end: (r.querySelector(".rangeEnd").value || "").trim(),
-    })).filter(x => x.start || x.end);
-  }
+  function renderLifeBlocksList() {
+    const blocks = getLifeBlocks(state.selectedDate);
 
-  function autoUpdateStudyMin() {
-    const per = parseInt(studyPerRangeMin.value, 10);
-    if (!Number.isFinite(per) || per <= 0) return;
-    const ranges = readRanges(rangesList);
-    const auto = computeDurationFromPerRange(per, ranges);
-    if (auto != null) studyMin.value = String(auto);
-  }
-
-  function findTaskById(taskId) {
-    for (const [d, arr] of Object.entries(state.studyByDate)) {
-      const t = (arr || []).find(x => x.id === taskId);
-      if (t) return { date: d, task: t };
+    const box = el("div", { class: "listBox" });
+    if (!blocks.length) {
+      box.appendChild(el("div", { class: "muted" }, ["（追加した生活ブロックはありません）"]));
+      return box;
     }
-    return null;
+    blocks.forEach(b => {
+      const row = el("div", { class: "listRow" });
+      row.appendChild(el("div", { class: "listMain" }, [
+        el("div", { class: "listTitle" }, [b.title]),
+        el("div", { class: "listSub" }, [formatLifeBlockTime(b)]),
+      ]));
+
+      const del = mkBtn("✕", "btnX", () => {
+        removeLifeBlock(state.selectedDate, b.id);
+        saveState();
+        render();
+      });
+      row.appendChild(del);
+
+      // 生活は「タッチで編集しない」仕様：タップしても何もしない
+      box.appendChild(row);
+    });
+    return box;
   }
 
-  function deleteStudyTask(date, taskId) {
-    const arr = state.studyByDate[date] || [];
-    state.studyByDate[date] = arr.filter(t => t.id !== taskId);
+  function formatLifeBlockTime(b) {
+    if (b.mode === "time") return `${b.start} - ${b.end}`;
+    if (b.mode === "duration") return `${b.start} - ${addMinHM(b.start, b.durationMin)}`;
+    return "";
+  }
 
-    delete state.progressByTask[taskId];
-    if (state.runner.activeTaskId === taskId) {
-      state.runner.activeTaskId = null;
-      state.runner.isRunning = false;
-      state.runner.lastTick = 0;
-      state.runner.pausedByUser = false;
-      state.runner.arrivalShownTaskId = null;
+  /* =========================================================
+     STUDY VIEW
+     ========================================================= */
+  function renderStudyView() {
+    const wrap = el("div", { class: "panel" });
+
+    wrap.appendChild(renderDateRow());
+
+    // この日の勉強リスト（編集・削除・並び替え）
+    const listCard = el("div", { class: "card" });
+    listCard.appendChild(el("div", { class: "cardTitle" }, ["この日の勉強リスト"]));
+
+    const tasks = getStudyTasks(state.selectedDate);
+
+    if (!tasks.length) {
+      listCard.appendChild(el("div", { class: "muted" }, ["（勉強タスクはまだありません）"]));
+    } else {
+      const list = el("div", { class: "listBox" });
+
+      tasks.forEach((t, idx) => {
+        const sys = systemByKey(t.system);
+        const row = el("div", { class: "listRow studyRow" });
+
+        const pill = el("div", { class: "sysPill", style: `background:${sys.color}` }, [t.subject || "勉強"]);
+        const title = `${t.taskType || "—"}${t.note ? `｜${t.note}` : ""}`;
+        const ranges = (t.ranges || []).length ? `範囲 ${renderRangeSummary(t.ranges)}` : "範囲 —";
+        const dur = estimateStudyMin(t);
+
+        row.appendChild(el("div", { class: "listMain" }, [
+          el("div", { class: "rowTight" }, [
+            pill,
+            el("div", { class: "listTitle" }, [title]),
+            el("div", { class: "rightTag" }, [`${dur}分`]),
+          ]),
+          el("div", { class: "listSub" }, [ranges]),
+        ]));
+
+        // 並び替え
+        const up = mkBtn("▲", "btnTiny", () => moveStudyTask(state.selectedDate, idx, -1));
+        const dn = mkBtn("▼", "btnTiny", () => moveStudyTask(state.selectedDate, idx, +1));
+        const del = mkBtn("✕", "btnX", () => {
+          removeStudyTask(state.selectedDate, t.id);
+          saveState();
+          render();
+        });
+
+        const right = el("div", { class: "listRight" }, [up, dn, del]);
+        row.appendChild(right);
+
+        // 勉強はタップで編集
+        row.addEventListener("click", (e) => {
+          // ボタン押下は除外
+          if (e.target && e.target.closest("button")) return;
+          openStudyTaskEditor(t.id);
+        });
+
+        list.appendChild(row);
+      });
+
+      listCard.appendChild(list);
     }
 
-    delete state.planCache[date];
-    saveState();
+    wrap.appendChild(listCard);
 
-    renderStudyList();
-    renderTimeline(true);
+    // 自動で組み立て（リストの下）
+    const autoCard = el("div", { class: "card" });
+    autoCard.appendChild(el("div", { class: "cardTitle" }, ["自動で組み立て"]));
+    autoCard.appendChild(el("div", { class: "mutedSmall" }, ["生活設定の空き時間に、上から順に勉強を入れます（入り切らない場合は最後を入れません）。"]));
+    autoCard.appendChild(el("div", { class: "row" }, [
+      mkBtn("この日の予定を更新", "btnPrimary", () => {
+        // 予定を更新＝タイムライン再計算（実体は動的生成だが、NOWキャッシュ更新のためレンダー）
+        // ※ここで確認などは出さない
+        toast("更新しました");
+        saveState();
+        render();
+      }),
+    ]));
+    wrap.appendChild(autoCard);
+
+    // 勉強タスク追加フォーム
+    const addCard = el("div", { class: "card" });
+    addCard.appendChild(el("div", { class: "cardTitle" }, ["勉強タスクを追加"]));
+
+    const form = el("div", { class: "grid2" });
+
+    // 系 → 科目 → 内容
+    const sysSel = mkSelect(STUDY_SYSTEMS.map(s => ({ value: s.key, label: s.label })), "kokugo");
+    const subjSel = mkSelect(subjectOptionsForSystem("kokugo"), "論国");
+    const typeSel = mkSelect(taskTypeOptionsForSubject("論国"), "");
+
+    const otherSubjInput = mkInput("その他の科目名", "");
+    otherSubjInput.placeholder = "例：情報、保健、探究…";
+    otherSubjInput.style.display = "none";
+
+    const noteIn = mkInput("メモ（任意）", "");
+    noteIn.placeholder = "例：チャート / ノートまとめ";
+
+    const durIn = mkNumber("30", 1, 600, 5);
+    const perRangeIn = mkNumber("", 1, 120, 1);
+    perRangeIn.placeholder = "未指定なら「分数」を使う";
+
+    sysSel.addEventListener("change", () => {
+      const sys = sysSel.value;
+      // 科目更新
+      subjSel.innerHTML = "";
+      subjectOptionsForSystem(sys).forEach(o => subjSel.appendChild(mkOption(o.value, o.label)));
+      subjSel.value = subjectOptionsForSystem(sys)[0]?.value || "";
+      // その他欄
+      otherSubjInput.style.display = (sys === "other") ? "block" : "none";
+      if (sys === "other") otherSubjInput.value = "";
+
+      // 内容更新
+      refreshTaskTypes();
+    });
+
+    subjSel.addEventListener("change", refreshTaskTypes);
+
+    function refreshTaskTypes() {
+      const sys = sysSel.value;
+      const subj = subjSel.value;
+      const actualSubj = (sys === "other") ? "その他" : subj;
+
+      typeSel.innerHTML = "";
+      taskTypeOptionsForSubject(actualSubj).forEach(o => typeSel.appendChild(mkOption(o.value, o.label)));
+      typeSel.value = taskTypeOptionsForSubject(actualSubj)[0]?.value || "";
+    }
+
+    form.appendChild(labeled("系", sysSel));
+    form.appendChild(labeled("科目", subjSel));
+
+    // その他の科目名は「その他系」のときだけ表示
+    const otherWrap = labeled("その他の科目名", otherSubjInput);
+    otherWrap.style.gridColumn = "1 / -1";
+    addCard.appendChild(form);
+    addCard.appendChild(otherWrap);
+
+    const form2 = el("div", { class: "grid2" });
+    form2.appendChild(labeled("内容", typeSel));
+    form2.appendChild(labeled("分数", durIn));
+    addCard.appendChild(form2);
+
+    const form3 = el("div", { class: "grid2" });
+    form3.appendChild(labeled("1範囲あたり（分）", perRangeIn));
+    form3.appendChild(labeled("メモ（任意）", noteIn));
+    addCard.appendChild(form3);
+
+    // 範囲（開始/終了を上下）
+    const rangesBox = el("div", { class: "rangesBox" });
+    rangesBox.appendChild(el("div", { class: "rangesTitle" }, ["範囲"]));
+
+    const rangesList = el("div", { class: "rangesList", id: "rangesList" });
+    rangesBox.appendChild(rangesList);
+
+    function addRangeRow(startVal = "", endVal = "") {
+      const row = el("div", { class: "rangeRow" });
+
+      const start = mkInput("開始", startVal);
+      const end = mkInput("終了", endVal);
+
+      start.placeholder = "開始";
+      end.placeholder = "終了";
+
+      const del = mkBtn("✕", "btnX", () => {
+        row.remove();
+      });
+
+      const stack = el("div", { class: "rangeStack" }, [
+        labeledInline("開始", start),
+        labeledInline("終了", end),
+      ]);
+
+      row.appendChild(stack);
+      row.appendChild(del);
+      rangesList.appendChild(row);
+    }
+
+    addRangeRow();
+
+    rangesBox.appendChild(el("div", { class: "row" }, [
+      mkBtn("範囲を追加", "btnGhost", () => addRangeRow()),
+    ]));
+
+    addCard.appendChild(rangesBox);
+
+    // 追加ボタン
+    addCard.appendChild(el("div", { class: "row" }, [
+      mkBtn("追加", "btnPrimary", () => {
+        const system = sysSel.value;
+        const subject = (system === "other") ? "その他" : subjSel.value;
+        const otherName = (system === "other") ? (otherSubjInput.value || "").trim() : "";
+        const taskType = typeSel.value;
+
+        const durationMin = clampInt(durIn.value, 1, 600);
+        const perRangeMin = perRangeIn.value ? clampInt(perRangeIn.value, 1, 120) : null;
+
+        const ranges = [];
+        Array.from(rangesList.querySelectorAll(".rangeRow")).forEach(r => {
+          const ins = r.querySelectorAll("input");
+          if (!ins || ins.length < 2) return;
+          const s = (ins[0].value || "").trim();
+          const e = (ins[1].value || "").trim();
+          if (!s && !e) return;
+          ranges.push({ start: s, end: e });
+        });
+
+        const id = uid();
+        const t = {
+          id,
+          system,
+          subject: (system === "other" && otherName) ? otherName : subject,
+          taskType,
+          note: (noteIn.value || "").trim(),
+          durationMin,
+          perRangeMin,
+          ranges,
+          createdAt: Date.now(),
+        };
+
+        addStudyTask(state.selectedDate, t);
+        saveState();
+        render();
+      }),
+    ]));
+
+    wrap.appendChild(addCard);
+
+    return wrap;
   }
 
-  function moveStudyTask(date, index, dir) {
-    const arr = state.studyByDate[date] ? [...state.studyByDate[date]] : [];
-    const j = index + dir;
-    if (j < 0 || j >= arr.length) return;
+  function openStudyTaskEditor(taskId) {
+    const t = findStudyTaskById(state.selectedDate, taskId);
+    if (!t) return;
 
-    const hadPlan = !!state.planCache[date];
+    const body = el("div", { class: "modalBodyScroll" });
 
-    [arr[index], arr[j]] = [arr[j], arr[index]];
-    state.studyByDate[date] = arr;
+    body.appendChild(el("div", { class: "mutedSmall" }, ["勉強タスクは編集できます。生活タスクは編集しません。"]));
 
-    delete state.planCache[date];
-    saveState();
+    const sysSel = mkSelect(STUDY_SYSTEMS.map(s => ({ value: s.key, label: s.label })), t.system);
+    const subjSel = mkSelect(subjectOptionsForSystem(t.system), pickDefaultSubject(t.system, t.subject));
+    const typeSel = mkSelect(taskTypeOptionsForSubject(subjSel.value), t.taskType || "");
 
-    renderStudyList();
-    if (hadPlan) buildPlanForDay(date);
-    renderTimeline(true);
+    const otherSubjInput = mkInput("その他の科目名", (t.system === "other") ? (t.subject || "") : "");
+    otherSubjInput.style.display = (t.system === "other") ? "block" : "none";
+
+    const durIn = mkNumber(String(t.durationMin || 30), 1, 600, 5);
+    const perRangeIn = mkNumber(t.perRangeMin ? String(t.perRangeMin) : "", 1, 120, 1);
+    perRangeIn.placeholder = "未指定なら「分数」を使う";
+
+    const noteIn = mkInput("メモ（任意）", t.note || "");
+
+    sysSel.addEventListener("change", () => {
+      subjSel.innerHTML = "";
+      subjectOptionsForSystem(sysSel.value).forEach(o => subjSel.appendChild(mkOption(o.value, o.label)));
+      subjSel.value = subjectOptionsForSystem(sysSel.value)[0]?.value || "";
+      otherSubjInput.style.display = (sysSel.value === "other") ? "block" : "none";
+      refreshTypes();
+    });
+    subjSel.addEventListener("change", refreshTypes);
+
+    function refreshTypes() {
+      const subj = subjSel.value;
+      typeSel.innerHTML = "";
+      taskTypeOptionsForSubject(subj).forEach(o => typeSel.appendChild(mkOption(o.value, o.label)));
+      if (taskTypeOptionsForSubject(subj).some(o => o.value === t.taskType)) typeSel.value = t.taskType;
+      else typeSel.value = taskTypeOptionsForSubject(subj)[0]?.value || "";
+    }
+
+    body.appendChild(el("div", { class: "grid2" }, [
+      labeled("系", sysSel),
+      labeled("科目", subjSel),
+    ]));
+    body.appendChild(labeled("その他の科目名", otherSubjInput));
+    body.appendChild(el("div", { class: "grid2" }, [
+      labeled("内容", typeSel),
+      labeled("分数", durIn),
+    ]));
+    body.appendChild(el("div", { class: "grid2" }, [
+      labeled("1範囲あたり（分）", perRangeIn),
+      labeled("メモ（任意）", noteIn),
+    ]));
+
+    // 範囲編集
+    const rangesBox = el("div", { class: "rangesBox" });
+    rangesBox.appendChild(el("div", { class: "rangesTitle" }, ["範囲"]));
+    const rangesList = el("div", { class: "rangesList" });
+
+    function addRangeRow(startVal = "", endVal = "") {
+      const row = el("div", { class: "rangeRow" });
+      const start = mkInput("開始", startVal);
+      const end = mkInput("終了", endVal);
+      const del = mkBtn("✕", "btnX", () => row.remove());
+      const stack = el("div", { class: "rangeStack" }, [
+        labeledInline("開始", start),
+        labeledInline("終了", end),
+      ]);
+      row.appendChild(stack);
+      row.appendChild(del);
+      rangesList.appendChild(row);
+    }
+
+    (t.ranges || []).forEach(r => addRangeRow(r.start || "", r.end || ""));
+    if (!(t.ranges || []).length) addRangeRow();
+
+    rangesBox.appendChild(rangesList);
+    rangesBox.appendChild(el("div", { class: "row" }, [
+      mkBtn("範囲を追加", "btnGhost", () => addRangeRow()),
+    ]));
+    body.appendChild(rangesBox);
+
+    openModal("編集", body, [
+      mkBtn("キャンセル", "btnGhost", closeModal),
+      mkBtn("保存", "btnPrimary", () => {
+        t.system = sysSel.value;
+        const subj = subjSel.value;
+        t.subject = (t.system === "other")
+          ? ((otherSubjInput.value || "").trim() || "その他")
+          : subj;
+
+        t.taskType = typeSel.value;
+        t.durationMin = clampInt(durIn.value, 1, 600);
+        t.perRangeMin = perRangeIn.value ? clampInt(perRangeIn.value, 1, 120) : null;
+        t.note = (noteIn.value || "").trim();
+
+        // ranges
+        const ranges = [];
+        Array.from(rangesList.querySelectorAll(".rangeRow")).forEach(r => {
+          const ins = r.querySelectorAll("input");
+          if (!ins || ins.length < 2) return;
+          const s = (ins[0].value || "").trim();
+          const e = (ins[1].value || "").trim();
+          if (!s && !e) return;
+          ranges.push({ start: s, end: e });
+        });
+        t.ranges = ranges;
+
+        saveState();
+        closeModal();
+        render();
+      }),
+    ]);
   }
 
-  function openStudyEdit(date, taskId) {
-    const found = findTaskById(taskId);
-    if (!found) return;
-    openEditor("勉強 編集", document.createElement("div"), [mkBtn("キャンセル", "btnGhost", closeEditor)]);
+  /* =========================================================
+     TIMELINE VIEW
+     ========================================================= */
+  function renderTimelineView() {
+    const wrap = el("div", { class: "panel" });
+
+    // 日付行（タイムラインは表示日を変えられる）
+    wrap.appendChild(renderDateRow());
+
+    // タイムライン本体：前日・当日・翌日を表示（連続）
+    const days = [
+      addDaysToKey(state.selectedDate, -1),
+      state.selectedDate,
+      addDaysToKey(state.selectedDate, +1),
+    ];
+
+    const timeline = el("div", { class: "timeline", id: "timelineRoot" });
+
+    // キャッシュ生成（NOW検出・残り時間計算に使う）
+    const blocks = buildTimelineBlocksForDays(days);
+    // グローバルキャッシュ（TOP・NOWスクロールで参照）
+    state.__timelineCache = { days, blocks, builtAt: Date.now() };
+
+    days.forEach((k) => {
+      const dayStart = dateKeyToDate(k);
+
+      const day = el("div", { class: "daySection", "data-day": k });
+
+      const label = el("div", { class: "dayLabel" }, [
+        el("div", { class: "dayDate" }, [fmtMD(dayStart)]),
+        el("div", { class: "dayWday" }, [WEEKDAYS[dayStart.getDay()]]),
+      ]);
+
+      const lane = el("div", { class: "dayLane" });
+      lane.style.height = `${24 * 60 * PX_PER_MIN}px`;
+
+      // 時刻目盛（見えなくならないように）
+      const ticks = el("div", { class: "ticks" });
+      for (let h = 0; h <= 24; h++) {
+        const top = h * 60 * PX_PER_MIN;
+        const t = el("div", { class: "tick", style: `top:${top}px` }, [
+          el("div", { class: "tickLabel" }, [h === 24 ? "24:00" : String(h).padStart(2, "0") + ":00"]),
+          el("div", { class: "tickLine" }, [""]),
+        ]);
+        ticks.appendChild(t);
+      }
+      lane.appendChild(ticks);
+
+      // この日のブロック（開始がこの日のものを描画。日またぎは高さで伸ばす）
+      blocks.filter(b => sameDay(new Date(b.startTs), dayStart)).forEach(b => {
+        const card = renderTimelineBlockCard(b);
+        // 絶対分 → day内分
+        const startMin = minutesSinceDayStart(dayStart, new Date(b.startTs));
+        const durMin = Math.max(1, Math.round((b.endTs - b.startTs) / 60000));
+        const top = startMin * PX_PER_MIN;
+
+        let height = durMin * PX_PER_MIN;
+        if (height < MIN_BLOCK_PX) height = MIN_BLOCK_PX;
+
+        card.style.top = `${top}px`;
+        card.style.height = `${height}px`;
+        lane.appendChild(card);
+      });
+
+      // NOWライン（当日）
+      if (k === dateKeyFromDate(new Date())) {
+        const now = new Date();
+        const nowMin = minutesSinceDayStart(dayStart, now);
+        if (nowMin >= 0 && nowMin < 24 * 60) {
+          const nowLine = el("div", { class: "nowLine", id: "nowLine" });
+          nowLine.style.top = `${nowMin * PX_PER_MIN}px`;
+          lane.appendChild(nowLine);
+        }
+      }
+
+      day.appendChild(label);
+      day.appendChild(lane);
+      timeline.appendChild(day);
+    });
+
+    wrap.appendChild(timeline);
+
+    // 初期はNOWにいる
+    setTimeout(scrollToNow, 50);
+
+    return wrap;
   }
 
-  /* ===== Runner / Progress ===== */
-function getTaskSteps(task) {
-  const steps = computeRangeSteps(task.ranges || []);
-  if (steps.length === 0) return ["（範囲なし）"];
-  return steps;
-}
+  function renderTimelineBlockCard(b) {
+    const sys = b.kind === "study" ? systemByKey(b.system) : null;
+    const color = b.kind === "study" ? sys.color : "rgba(255,255,255,.14)";
 
-function ensureProgress(taskId, stepsLen) {
-  const p = state.progressByTask[taskId] || { doneSteps: [], spentSec: 0 };
-  if (!Array.isArray(p.doneSteps)) p.doneSteps = [];
-  if (!Number.isFinite(p.spentSec)) p.spentSec = 0;
+    const title = (b.kind === "study")
+      ? `${b.subject || "勉強"}｜${b.taskType || "—"}`
+      : (b.title || "生活");
 
-  if (p.doneSteps.length < stepsLen) p.doneSteps = p.doneSteps.concat(Array(stepsLen - p.doneSteps.length).fill(false));
-  if (p.doneSteps.length > stepsLen) p.doneSteps = p.doneSteps.slice(0, stepsLen);
+    const time = `${fmtHM(new Date(b.startTs))} - ${fmtHM(new Date(b.endTs))}`;
 
-  state.progressByTask[taskId] = p;
-  return p;
-}
+    const card = el("div", { class: "blockCard", style: `border-left:6px solid ${color}` });
+    card.appendChild(el("div", { class: "blockTime" }, [time]));
+    card.appendChild(el("div", { class: "blockTitle" }, [title]));
 
-function computeTotalSec(task) {
-  const steps = getTaskSteps(task);
-  if (task.perRangeMin && Number.isFinite(task.perRangeMin) && task.perRangeMin > 0 && steps[0] !== "（範囲なし）") {
-    return steps.length * task.perRangeMin * 60;
+    // 短時間は本文が潰れるので補助
+    if (b.kind === "study" && b.ranges && b.ranges.length) {
+      card.appendChild(el("div", { class: "blockSub" }, [`範囲 ${renderRangeSummary(b.ranges)}`]));
+    } else {
+      card.appendChild(el("div", { class: "blockSub" }, [b.kind === "study" ? "（タップで実行）" : "（タップで確認）"]));
+    }
+
+    // タップ動作
+    card.addEventListener("click", () => {
+      if (b.kind === "study") {
+        openRunner(b.taskId);
+      } else {
+        openLifeInfoModal();
+      }
+    });
+
+    return card;
   }
-  return clamp(parseInt(task.durationMin || "30", 10), 1, 2000) * 60;
-}
 
-function countDone(doneSteps) {
-  return (doneSteps || []).reduce((a, b) => a + (b ? 1 : 0), 0);
-}
+  function openLifeInfoModal() {
+    // 生活は編集しない。確認だけ。
+    const L = getLifeSettings(state.selectedDate);
+    const body = el("div", { class: "modalBodyScroll" });
 
-function isTaskComplete(taskId) {
-  const found = findTaskById(taskId);
-  if (!found) return false;
-  const task = found.task;
-  const steps = getTaskSteps(task);
-  const p = ensureProgress(taskId, steps.length);
-  const totalSec = computeTotalSec(task);
-  const doneAll = (countDone(p.doneSteps) === steps.length);
-  const spentAll = ((p.spentSec || 0) >= totalSec);
-  return doneAll || spentAll;
-}
+    body.appendChild(el("div", { class: "mutedSmall" }, ["この日の生活設定（確認）"]));
+    body.appendChild(el("div", { class: "infoGrid" }, [
+      infoRow("授業", L.school),
+      infoRow("部活", L.club),
+      infoRow("朝の移動", (L.school === "あり" || L.club === "あり") ? `${L.morningMoveStart} / ${L.morningMoveMin}分` : "—"),
+      infoRow("授業", L.school === "あり" ? `${L.classStart} - ${L.classEnd}` : "—"),
+      infoRow("部活", L.club === "あり" ? `${L.clubStart} - ${L.clubEnd}` : "—"),
+      infoRow("帰りの移動", (L.school === "あり" || L.club === "あり") ? formatReturnMoveLabel(L.returnMoveMode) : "—"),
+      infoRow("風呂", L.bath === "あり" ? `${L.bathMin}分` : "なし"),
+      infoRow("準備", L.prep === "あり" ? `${L.prepMin}分` : "なし"),
+      infoRow("就寝", L.sleepUse === "あり" ? `${L.sleepTime} → ${L.wakeTime}` : "なし"),
+    ]));
 
-function setRemainPill(task, remainSec) {
-  if (!task) { remainPill.hidden = true; return; }
-  remainSubj.textContent = task.subject;
-  remainTime.textContent = fmtMS(remainSec);
-  remainPill.hidden = false;
-}
+    openModal("確認", body, [mkBtn("OK", "btnPrimary", closeModal)]);
+  }
 
-function runnerStart(taskId, auto = false) {
-  if (!taskId) return;
-  // 同じタスクを再実行する可能性に備えて、到着抑止フラグは開始時に解除
-  state.runner.arrivalShownTaskId = null;
+  function infoRow(k, v) {
+    return el("div", { class: "infoRow" }, [
+      el("div", { class: "infoKey" }, [k]),
+      el("div", { class: "infoVal" }, [String(v ?? "—")]),
+    ]);
+  }
 
-  state.runner.activeTaskId = taskId;
-  state.runner.isRunning = true;
-  state.runner.lastTick = Date.now();
-  if (!auto) state.runner.pausedByUser = false;
-  saveState();
-}
+  /* =========================================================
+     Runner / Progress  （開始ボタンなし）
+     ========================================================= */
+  function getTaskSteps(task) {
+    const steps = computeRangeSteps(task.ranges || []);
+    if (steps.length === 0) return ["（範囲なし）"];
+    return steps;
+  }
 
-function runnerStop(user = false) {
-  state.runner.isRunning = false;
-  state.runner.lastTick = 0;
-  if (user) state.runner.pausedByUser = true;
-  saveState();
-}
+  function ensureProgress(taskId, stepsLen) {
+    const p = state.progressByTask[taskId] || { doneSteps: [], spentSec: 0 };
+    if (!Array.isArray(p.doneSteps)) p.doneSteps = [];
+    if (!Number.isFinite(p.spentSec)) p.spentSec = 0;
 
-// 到着を出す瞬間に active を解除してループ防止
-function openArrivalDialog(taskId) {
-  state.runner.arrivalShownTaskId = taskId;
+    if (p.doneSteps.length < stepsLen) p.doneSteps = p.doneSteps.concat(Array(stepsLen - p.doneSteps.length).fill(false));
+    if (p.doneSteps.length > stepsLen) p.doneSteps = p.doneSteps.slice(0, stepsLen);
 
-  state.runner.activeTaskId = null;
-  state.runner.isRunning = false;
-  state.runner.lastTick = 0;
-  state.runner.pausedByUser = false;
-  saveState();
-
-  const found = findTaskById(taskId);
-  const name = found ? `${found.task.subject}｜${found.task.taskType}` : "完了";
-
-  const body = document.createElement("div");
-  body.className = "grid1";
-  const big = document.createElement("div");
-  big.style.cssText = "font-size:36px;font-weight:1000;text-align:center;";
-  big.textContent = "到着";
-  const sub = document.createElement("div");
-  sub.style.cssText = "text-align:center;color:rgba(240,244,255,.72);font-weight:900;";
-  sub.textContent = name;
-  body.appendChild(big);
-  body.appendChild(sub);
-
-  openEditor("到着", body, [mkBtn("OK", "btnPrimary", closeEditor)]);
-}
-
-function openRunner(taskId) {
-  const found = findTaskById(taskId);
-  if (!found) return;
-
-  const t = found.task;
-  const steps = getTaskSteps(t);
-  const p = ensureProgress(taskId, steps.length);
-  const totalSec = computeTotalSec(t);
-
-  const body = document.createElement("div");
-  body.className = "runner";
-
-  const title = document.createElement("div");
-  title.style.cssText = "font-weight:1000;font-size:16px;";
-  title.textContent = `${t.subject}｜${t.taskType}`;
-
-  const timeBox = document.createElement("div");
-  timeBox.className = "runnerTime";
-
-  const timeBig = document.createElement("div");
-  timeBig.className = "runnerTimeBig";
-  const timeSmall = document.createElement("div");
-  timeSmall.className = "runnerTimeSmall";
-
-  timeBox.appendChild(timeBig);
-  timeBox.appendChild(timeSmall);
-
-  const prog = document.createElement("div");
-  prog.style.cssText = "text-align:right;color:rgba(240,244,255,.72);font-weight:1000;";
-
-  const btnAll = mkBtn("全部完了", "btnPrimary", () => {
-    for (let i = 0; i < p.doneSteps.length; i++) p.doneSteps[i] = true;
-    p.spentSec = Math.max(p.spentSec, totalSec);
     state.progressByTask[taskId] = p;
-    saveState();
-    runnerStop(false);
-    renderRunner();
-    openArrivalDialog(taskId);
-  });
-
-  const stepsBox = document.createElement("div");
-  stepsBox.style.display = "grid";
-  stepsBox.style.gap = "8px";
-
-  const stepBtns = steps.map((label, i) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "stepBtn";
-    const left = document.createElement("span");
-    left.textContent = label;
-    const right = document.createElement("span");
-    right.className = "stepRight";
-    b.appendChild(left);
-    b.appendChild(right);
-
-    b.addEventListener("click", () => {
-      p.doneSteps[i] = !p.doneSteps[i];
-      state.progressByTask[taskId] = p;
-      saveState();
-      renderRunner();
-
-      if (countDone(p.doneSteps) === steps.length) {
-        runnerStop(false);
-        openArrivalDialog(taskId);
-      }
-    });
-    return b;
-  });
-  stepBtns.forEach(b => stepsBox.appendChild(b));
-
-  const btnClose = mkBtn("閉じる", "btnGhost", closeEditor);
-  const foot = document.createElement("div");
-  foot.className = "row";
-  foot.appendChild(btnClose);
-
-  body.appendChild(title);
-  body.appendChild(timeBox);
-  body.appendChild(prog);
-  body.appendChild(btnAll);
-  body.appendChild(stepsBox);
-
-  // openEditor はボタン配列だが、nodeもappendできる作りなので foot を渡す
-  openEditor("実行", body, [foot]);
-
-  function renderRunner() {
-    const p2 = ensureProgress(taskId, steps.length);
-    const done = countDone(p2.doneSteps);
-    const remainSec = Math.max(0, totalSec - (p2.spentSec || 0));
-
-    timeBig.textContent = fmtMS(remainSec);
-    timeSmall.textContent = `残り ${Math.ceil(remainSec / 60)}分`;
-    prog.textContent = `${done}/${steps.length}`;
-
-    stepBtns.forEach((b, i) => {
-      const doneOne = !!p2.doneSteps[i];
-      b.classList.toggle("isDone", doneOne);
-      b.querySelector(".stepRight").textContent = doneOne ? "完了" : "";
-    });
+    return p;
   }
 
-  if (runnerUiTimer) { clearInterval(runnerUiTimer); runnerUiTimer = null; }
-  runnerUiTimer = setInterval(renderRunner, 250);
-  renderRunner();
-}
-  
-  /* ===== Planning ===== */
-  function subtractSegments(baseSegs, busySegs) {
-    const busy = busySegs
-      .map(x => ({ start: clamp(x.startMin, 0, 1440), end: clamp(x.endMin, 0, 1440) }))
-      .filter(x => x.end > x.start)
-      .sort((a, b) => a.start - b.start);
-
-    const merged = [];
-    for (const b of busy) {
-      const last = merged[merged.length - 1];
-      if (!last || b.start > last.end) merged.push({ ...b });
-      else last.end = Math.max(last.end, b.end);
+  function computeTotalSec(task) {
+    const steps = getTaskSteps(task);
+    if (task.perRangeMin && Number.isFinite(task.perRangeMin) && task.perRangeMin > 0 && steps[0] !== "（範囲なし）") {
+      return steps.length * task.perRangeMin * 60;
     }
-
-    let free = baseSegs.map(x => ({ ...x }));
-    for (const b of merged) {
-      const next = [];
-      for (const f of free) {
-        if (b.end <= f.start || b.start >= f.end) { next.push(f); continue; }
-        if (b.start > f.start) next.push({ start: f.start, end: b.start });
-        if (b.end < f.end) next.push({ start: b.end, end: f.end });
-      }
-      free = next;
-    }
-    return free.filter(x => x.end > x.start);
+    return clampInt(task.durationMin ?? 30, 1, 2000) * 60;
   }
 
-  function placeTask(segments, dur, deadlineMin) {
-    for (const seg of segments) {
-      const start = seg.start;
-      const end = start + dur;
-      if (end > seg.end) continue;
-      if (deadlineMin != null && end > deadlineMin) continue;
-      return { start, end };
-    }
-    return null;
+  function countDone(doneSteps) {
+    return (doneSteps || []).reduce((a, b) => a + (b ? 1 : 0), 0);
   }
 
-  function reserve(segments, s, e) {
-    return subtractSegments(segments, [{ startMin: s, endMin: e }]);
+  function isTaskComplete(taskId) {
+    const t = findStudyTaskById(state.selectedDate, taskId) || findStudyTaskAnyDate(taskId);
+    if (!t) return false;
+    const steps = getTaskSteps(t);
+    const p = ensureProgress(taskId, steps.length);
+    const totalSec = computeTotalSec(t);
+    const doneAll = (countDone(p.doneSteps) === steps.length);
+    const spentAll = ((p.spentSec || 0) >= totalSec);
+    return doneAll || spentAll;
   }
 
-  function mergeAdjacentStudyBlocks(blocks) {
-    const out = [];
-    for (const b of blocks) {
-      const last = out[out.length - 1];
-      if (
-        last &&
-        last.kind === "study" &&
-        b.kind === "study" &&
-        last.taskId === b.taskId &&
-        last.endMin === b.startMin &&
-        last.date === b.date
-      ) {
-        last.endMin = b.endMin;
-        last.dispEnd = Math.max(last.dispEnd ?? last.endMin, b.dispEnd ?? b.endMin);
-        continue;
-      }
-      out.push({ ...b });
-    }
-    return out;
-  }
+  function runnerStart(taskId, auto = false) {
+    if (!taskId) return;
+    // 到着抑止フラグは開始時に解除
+    state.runner.arrivalShownTaskId = null;
 
-  function computeStudyWindowStart(date) {
-    const r = peekRoutine(date);
-    if (!r) return 0;
-
-    const schoolOn = r.schoolOn === "on";
-    const clubOn = r.clubOn === "on";
-    if (!schoolOn && !clubOn) return 0;
-
-    const se = schoolOn ? minutesOf(r.schoolEnd) : null;
-    const ce = clubOn ? minutesOf(r.clubEnd) : null;
-    const base = Math.max(se ?? 0, ce ?? 0);
-    return Number.isFinite(base) ? clamp(base, 0, 1440) : 0;
-  }
-
-  function buildPlanForDay(date) {
-    const lifeBlocks = allLifeBlocksForDate(date);
-    const occupied = lifeBlocks.map(b => ({ startMin: b.startMin, endMin: b.endMin }));
-    const windowStart = computeStudyWindowStart(date);
-
-    const allTasks = (state.studyByDate[date] || []).map(t => ({ ...t })); // リスト順優先
-
-    const attempt = (tasks) => {
-      let free = subtractSegments([{ start: windowStart, end: 1440 }], occupied);
-      const blocks = [...lifeBlocks];
-      let overflow = [];
-
-      for (const t of tasks) {
-        const deadlineMin = t.deadlineHHMM ? minutesOf(t.deadlineHHMM) : null;
-        const steps = computeRangeSteps(t.ranges || []);
-        const per = Number.isFinite(t.perRangeMin) ? t.perRangeMin : null;
-
-        const units = (per && per > 0 && steps.length > 0)
-          ? steps.map((label, i) => ({ stepIndex: i, stepLabel: label, dur: per }))
-          : [{ stepIndex: null, stepLabel: null, dur: clamp(parseInt(t.durationMin || "30", 10), 1, 2000) }];
-
-        let trial = free;
-        const placed = [];
-        let ok = true;
-
-        for (const u of units) {
-          const dur = clamp(parseInt(u.dur || "30", 10), 1, 2000);
-
-          let place = placeTask(trial, dur, deadlineMin);
-          if (!place) place = placeTask(trial, dur, null);
-          if (!place) { ok = false; break; }
-
-          trial = reserve(trial, place.start, place.end);
-          placed.push({
-            kind: "study",
-            sourceId: t.id,
-            taskId: t.id,
-            date,
-            startMin: place.start,
-            endMin: place.end,
-            dispStart: place.start,
-            dispEnd: place.end,
-            label: t.subject,
-            color: CATEGORY_COLORS[t.category] || cssVar("--gray"),
-            meta: t.taskType
-          });
-        }
-
-        if (!ok) {
-          overflow = [t.id];
-          break;
-        }
-
-        free = trial;
-        blocks.push(...placed);
-      }
-
-      const dayBlocks = blocks
-        .filter(b => b.date === date)
-        .sort((a, b) => a.startMin - b.startMin);
-
-      const merged = mergeAdjacentStudyBlocks(dayBlocks);
-      return { blocks: merged, overflow };
-    };
-
-    // 下から落とす
-    let m = allTasks.length;
-    let result = attempt(allTasks.slice(0, m));
-    while (m > 0 && result.overflow.length > 0) {
-      m -= 1;
-      result = attempt(allTasks.slice(0, m));
-    }
-
-    const excludedTaskIds = allTasks.slice(m).map(t => t.id);
-
-    state.planCache[date] = {
-      blocks: result.blocks,
-      overflow: result.overflow,
-      excludedTaskIds
-    };
-    saveState();
-
-    if (excludedTaskIds.length > 0) {
-      overflowHint.textContent = "入りきらないため、下のタスクを予定に入れませんでした。";
-      setHidden(overflowHint, false);
-    } else {
-      setHidden(overflowHint, true);
-    }
-  }
-
-  /* ===== Auto-start timer when NOW enters study block ===== */
-  function autoStartFromNow() {
-    const today = fmtDate(new Date());
-    const plan = state.planCache[today];
-    if (!plan || !Array.isArray(plan.blocks)) return;
-
-    const now = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes();
-
-    const hit = plan.blocks.find(b => b.kind === "study" && b.startMin <= nowMin && nowMin < b.endMin);
-    if (!hit) {
-      state.runner.lastAutoTaskId = null;
-      saveState();
-      return;
-    }
-
-    const taskId = hit.taskId;
-
-    // ★完了済みタスクは自動で開始しない（到着ループ防止）
-    if (isTaskComplete(taskId)) return;
-
-    if (state.runner.pausedByUser && state.runner.activeTaskId === taskId) return;
-    if (state.runner.activeTaskId !== taskId) state.runner.pausedByUser = false;
-    if (state.runner.activeTaskId === taskId && state.runner.isRunning) return;
-
-    runnerStart(taskId, true);
-    state.runner.lastAutoTaskId = taskId;
+    state.runner.activeTaskId = taskId;
+    state.runner.isRunning = true;
+    state.runner.lastTick = Date.now();
+    if (!auto) state.runner.pausedByUser = false;
     saveState();
   }
 
-  /* ===== Runner tick + top pill ===== */
-  function tickRunner() {
-    const taskId = state.runner.activeTaskId;
-    if (!taskId) { setRemainPill(null, 0); return; }
+  function runnerStop(user = false) {
+    state.runner.isRunning = false;
+    state.runner.lastTick = 0;
+    if (user) state.runner.pausedByUser = true;
+    saveState();
+  }
 
-    const found = findTaskById(taskId);
-    if (!found) { setRemainPill(null, 0); return; }
+  function openArrivalDialog(taskId) {
+    // ループ防止
+    state.runner.arrivalShownTaskId = taskId;
+    state.runner.activeTaskId = null;
+    state.runner.isRunning = false;
+    state.runner.lastTick = 0;
+    state.runner.pausedByUser = false;
+    saveState();
 
-    const t = found.task;
+    const t = findStudyTaskAnyDate(taskId);
+    const name = t ? `${t.subject}｜${t.taskType}` : "完了";
+
+    const body = el("div", { class: "modalBodyScroll" });
+    body.appendChild(el("div", { class: "arrivalBig" }, ["到着"]));
+    body.appendChild(el("div", { class: "arrivalSub" }, [name]));
+
+    openModal("到着", body, [mkBtn("OK", "btnPrimary", closeModal)]);
+  }
+
+  function openRunner(taskId) {
+    const t = findStudyTaskAnyDate(taskId);
+    if (!t) return;
+
     const steps = getTaskSteps(t);
     const p = ensureProgress(taskId, steps.length);
     const totalSec = computeTotalSec(t);
 
-    if (state.runner.isRunning) {
-      const now = Date.now();
-      const last = state.runner.lastTick || now;
-      const deltaSec = Math.floor((now - last) / 1000);
-      if (deltaSec > 0) {
-        p.spentSec = clamp((p.spentSec || 0) + deltaSec, 0, totalSec);
-        state.progressByTask[taskId] = p;
-        state.runner.lastTick = last + deltaSec * 1000;
-        saveState();
+    const body = el("div", { class: "modalBodyScroll", "data-runner-pane": "1", "data-taskid": taskId });
+    body.appendChild(el("div", { class: "runnerTitle" }, [`${t.subject}｜${t.taskType}`]));
 
-        if (totalSec - p.spentSec <= 0) {
-          // ★到着は同一タスクで1回だけ
-          if (state.runner.arrivalShownTaskId !== taskId) {
-            runnerStop(false);
-            openArrivalDialog(taskId);
-          } else {
-            runnerStop(false);
-          }
+    const timeBox = el("div", { class: "runnerTimeBox" }, [
+      el("div", { class: "runnerTimeBig", id: "runnerRemainBig" }, ["—:—"]),
+      el("div", { class: "runnerTimeSmall", id: "runnerRemainSmall" }, ["—"]),
+    ]);
+
+    const prog = el("div", { class: "runnerProg", id: "runnerProg" }, ["—"]);
+
+    const btnAll = mkBtn("全部完了", "btnPrimary", () => {
+      for (let i = 0; i < p.doneSteps.length; i++) p.doneSteps[i] = true;
+      p.spentSec = Math.max(p.spentSec, totalSec);
+      state.progressByTask[taskId] = p;
+      saveState();
+      runnerStop(false);
+      updateRunnerPane(taskId);
+      openArrivalDialog(taskId);
+    });
+
+    const stepsBox = el("div", { class: "stepsBox", id: "runnerStepsBox" });
+
+    steps.forEach((label, i) => {
+      const b = el("button", { class: "stepBtn", type: "button" }, [
+        el("span", { class: "stepLeft" }, [label]),
+        el("span", { class: "stepRight" }, [""]),
+      ]);
+
+      b.addEventListener("click", () => {
+        p.doneSteps[i] = !p.doneSteps[i];
+        state.progressByTask[taskId] = p;
+        saveState();
+        updateRunnerPane(taskId);
+
+        if (countDone(p.doneSteps) === steps.length) {
+          runnerStop(false);
+          openArrivalDialog(taskId);
+        }
+      });
+
+      stepsBox.appendChild(b);
+    });
+
+    body.appendChild(timeBox);
+    body.appendChild(prog);
+    body.appendChild(btnAll);
+    body.appendChild(stepsBox);
+
+    openModal("実行", body, [
+      mkBtn("閉じる", "btnGhost", closeModal),
+    ]);
+
+    // 初回表示更新
+    updateRunnerPane(taskId);
+  }
+
+  function updateRunnerPane(taskId) {
+    const t = findStudyTaskAnyDate(taskId);
+    if (!t) return;
+
+    const steps = getTaskSteps(t);
+    const p = ensureProgress(taskId, steps.length);
+    const totalSec = computeTotalSec(t);
+
+    const done = countDone(p.doneSteps);
+    const remainSec = Math.max(0, totalSec - (p.spentSec || 0));
+
+    const big = document.getElementById("runnerRemainBig");
+    const small = document.getElementById("runnerRemainSmall");
+    const prog = document.getElementById("runnerProg");
+    const stepsBox = document.getElementById("runnerStepsBox");
+
+    if (big) big.textContent = fmtMS(remainSec);
+    if (small) small.textContent = `残り ${Math.ceil(remainSec / 60)}分`;
+    if (prog) prog.textContent = `${done}/${steps.length}`;
+
+    if (stepsBox) {
+      const btns = stepsBox.querySelectorAll(".stepBtn");
+      btns.forEach((b, i) => {
+        const doneOne = !!p.doneSteps[i];
+        b.classList.toggle("isDone", doneOne);
+        const right = b.querySelector(".stepRight");
+        if (right) right.textContent = doneOne ? "完了" : "";
+      });
+    }
+  }
+
+  /* =========================================================
+     Timeline blocks builder
+     - 生活設定 + 生活ブロック + 勉強タスク（空き時間へ）
+     ========================================================= */
+  function buildTimelineBlocksForDays(dayKeys) {
+    let blocks = [];
+
+    // 生活：固定（授業/部活/移動/風呂/準備/就寝）＋追加ブロック
+    dayKeys.forEach(k => {
+      blocks = blocks.concat(buildLifeBlocksForDay(k));
+      blocks = blocks.concat(buildCustomLifeBlocksForDay(k));
+    });
+
+    // 勉強：その日ごとに、生活の空きへ埋める（授業前には入れない）
+    dayKeys.forEach(k => {
+      blocks = blocks.concat(buildStudyBlocksForDay(k, blocks));
+    });
+
+    // 同一タスクが連続している場合は結合（途中に生活が挟まれない限り）
+    blocks = mergeAdjacentSameBlocks(blocks);
+
+    // ソート
+    blocks.sort((a, b) => a.startTs - b.startTs);
+
+    // 重複チェック（軽く）
+    // 表示上は重複を避けたいので、重複分を落とす
+    blocks = dropOverlaps(blocks);
+
+    return blocks;
+  }
+
+  function buildLifeBlocksForDay(dateKey) {
+    const L = getLifeSettings(dateKey);
+    const day0 = dateKeyToDate(dateKey).getTime();
+
+    const blocks = [];
+    const add = (title, startMinAbs, endMinAbs) => {
+      if (!Number.isFinite(startMinAbs) || !Number.isFinite(endMinAbs)) return;
+      if (endMinAbs <= startMinAbs) return;
+      blocks.push({
+        kind: "life",
+        title,
+        startTs: day0 + startMinAbs * 60000,
+        endTs: day0 + endMinAbs * 60000,
+      });
+    };
+
+    // 就寝（時間）— 起床は表示しない（ブロックの end で表現）
+    // 「就寝時刻が1:00」のように日付変更後の場合は翌日の1:00扱い
+    // 起床は就寝から9h以内に補正
+    const sleep = computeSleepAbsWindow(L);
+    // sleep.startAbsMin/sleep.endAbsMin は day0 を基準とした「絶対分」（0〜2880）
+    // 例：就寝 23:00 => start=1380, end=1380+??（翌日分）
+    // 例：就寝 1:00 => start=1440+60
+    // 起床は end にするが、表示は「就寝」のみ
+    // ※タイムラインで "23:00-1:00" 表示したいので end を持つ
+    if (L.sleepUse === "あり" && sleep) {
+      add("就寝", sleep.startAbsMin, sleep.endAbsMin);
+    }
+
+    const hasSchool = (L.school === "あり");
+    const hasClub = (L.club === "あり");
+    const hasDay = (hasSchool || hasClub);
+
+    // 朝の移動
+    if (hasDay && L.morningMoveStart) {
+      const s = timeStrToMin(L.morningMoveStart);
+      const e = s + clampInt(L.morningMoveMin ?? 0, 0, 240);
+      add("移動", s, e);
+    }
+
+    // 授業
+    if (hasSchool && L.classStart && L.classEnd) {
+      const s = timeStrToMin(L.classStart);
+      const e = timeStrToMin(L.classEnd);
+      add("授業", s, e);
+    }
+
+    // 部活
+    if (hasClub && L.clubStart && L.clubEnd) {
+      const s = timeStrToMin(L.clubStart);
+      const e = timeStrToMin(L.clubEnd);
+      add("部活", s, e);
+    }
+
+    // 帰りの移動
+    if (hasDay) {
+      // 帰り開始＝授業 or 部活の終了のうち後
+      const endCandidates = [];
+      if (hasSchool && L.classEnd) endCandidates.push(timeStrToMin(L.classEnd));
+      if (hasClub && L.clubEnd) endCandidates.push(timeStrToMin(L.clubEnd));
+      const backStart = endCandidates.length ? Math.max(...endCandidates) : null;
+
+      if (backStart != null) {
+        const mode = L.returnMoveMode || "60";
+        if (mode === "60") {
+          add("移動", backStart, backStart + 60);
+        } else if (mode === "30") {
+          add("移動", backStart, backStart + 30);
+        } else if (mode === "30x2") {
+          // 1回目の30分移動
+          add("移動", backStart, backStart + 30);
+          // 2回目は、指定時刻から30分
+          const t2 = L.second30Start ? timeStrToMin(L.second30Start) : null;
+          if (t2 != null) add("移動", t2, t2 + 30);
+          // 2回目の後に食事30分（固定）
+          if (t2 != null) add("食事", t2 + 30, t2 + 60);
         }
       }
     }
 
-    const remainSec = Math.max(0, totalSec - (p.spentSec || 0));
-    setRemainPill(t, remainSec);
-  }
+    // 風呂 → 準備 → 就寝 の順番を固定（就寝の直前に置く）
+    // ※就寝が設定されていない場合は「置かない」
+    if (L.sleepUse === "あり" && sleep) {
+      const bathMin = (L.bath === "あり") ? clampInt(L.bathMin ?? 60, 0, 180) : 0;
+      const prepMin = (L.prep === "あり") ? clampInt(L.prepMin ?? 15, 0, 60) : 0;
 
-  /* ===== Timeline render ===== */
-  function badge(text) {
-    const s = document.createElement("span");
-    s.className = "badge";
-    s.textContent = text;
-    return s;
-  }
+      // 就寝開始の直前に配置
+      const prepEnd = sleep.startAbsMin;
+      const prepStart = prepEnd - prepMin;
+      const bathEnd = prepStart;
+      const bathStart = bathEnd - bathMin;
 
-  function renderDay(date) {
-    const dayEl = document.createElement("div");
-    dayEl.className = "day";
-    dayEl.dataset.date = date;
-
-    const header = document.createElement("div");
-    header.className = "dayHeader";
-    const dObj = parseDate(date);
-
-    const dateLine = document.createElement("div");
-    dateLine.className = "dayDate";
-    dateLine.textContent = `${dObj.getMonth() + 1}/${dObj.getDate()}`;
-    const dowLine = document.createElement("div");
-    dowLine.className = "dayDow";
-    dowLine.textContent = `（${dowName(dObj)}）`;
-
-    header.appendChild(dateLine);
-    header.appendChild(dowLine);
-
-    const grid = document.createElement("div");
-    grid.className = "dayGrid";
-
-    const axis = document.createElement("div");
-    axis.className = "axis";
-    for (let h = 0; h < 24; h++) {
-      const y = h * 60 * PX_PER_MIN;
-      const lab = document.createElement("div");
-      lab.className = "hourLabel";
-      lab.style.top = `${y}px`;
-      lab.textContent = `${pad2(h)}:00`;
-      axis.appendChild(lab);
+      // 0未満は切る（ただし意味が崩れるので、その場合は表示しない）
+      if (bathMin > 0 && bathStart >= 0) add("風呂", bathStart, bathEnd);
+      if (prepMin > 0 && prepStart >= 0) add("準備", prepStart, prepEnd);
     }
 
-    const canvas = document.createElement("div");
-    canvas.className = "canvas";
-    canvas.style.height = `${DAY_MIN * PX_PER_MIN}px`;
-
-    const plan = state.planCache[date];
-    const blocks = (plan && Array.isArray(plan.blocks)) ? plan.blocks : allLifeBlocksForDate(date);
-
-    for (const b of blocks) {
-      const el = document.createElement("div");
-      el.className = "block";
-
-      const durMin = (b.endMin - b.startMin);
-      if (durMin <= 20) el.classList.add("isTiny");
-      else if (durMin <= 35) el.classList.add("isSmall");
-
-      el.style.top = `${b.startMin * PX_PER_MIN}px`;
-      el.style.height = `${Math.max(18, durMin * PX_PER_MIN)}px`;
-      el.style.borderLeftColor = b.color || cssVar("--gray");
-
-      const title = document.createElement("div");
-      title.className = "blockTitle";
-      title.textContent = b.label;
-
-      const meta = document.createElement("div");
-      meta.className = "blockMeta";
-      meta.appendChild(badge(formatRange(b)));
-      meta.appendChild(badge(b.kind === "study" ? "勉強" : "生活"));
-      if (b.meta) meta.appendChild(badge(b.meta));
-
-      el.appendChild(title);
-      el.appendChild(meta);
-
-      el.addEventListener("click", () => {
-        if (b.kind === "study") { openRunner(b.taskId); return; }
-        openLifeInfo(date, b);
-      });
-
-      canvas.appendChild(el);
-    }
-
-    if (date === fmtDate(new Date())) {
-      const line = document.createElement("div");
-      line.className = "nowLine";
-      line.id = "nowLine";
-      canvas.appendChild(line);
-
-      const nowTag = document.createElement("div");
-      nowTag.className = "nowTag";
-      nowTag.id = "nowTag";
-      nowTag.textContent = "NOW";
-      canvas.appendChild(nowTag);
-    }
-
-    grid.appendChild(axis);
-    grid.appendChild(canvas);
-
-    dayEl.appendChild(header);
-    dayEl.appendChild(grid);
-    return dayEl;
+    return blocks;
   }
 
-  function renderTimeline(force) {
-    if (!force) return;
-    timeline.innerHTML = "";
+  function buildCustomLifeBlocksForDay(dateKey) {
+    const blocks = [];
+    const list = getLifeBlocks(dateKey);
+    const day0 = dateKeyToDate(dateKey).getTime();
 
-    let cur = state.ui.loadedStart;
-    while (cur <= state.ui.loadedEnd) {
-      timeline.appendChild(renderDay(cur));
-      cur = addDays(cur, 1);
-    }
-    updateNowLine();
-
-    setTimeout(() => jumpToDay(fmtDate(new Date()), true), 80);
-  }
-
-  function updateNowLine() {
-    const today = fmtDate(new Date());
-    const dayEl = timeline.querySelector(`.day[data-date="${today}"]`);
-    if (!dayEl) return;
-
-    const line = dayEl.querySelector("#nowLine");
-    const tag = dayEl.querySelector("#nowTag");
-    if (!line || !tag) return;
-
-    const now = new Date();
-    const min = now.getHours() * 60 + now.getMinutes();
-    const y = min * PX_PER_MIN;
-
-    line.style.top = `${y}px`;
-    tag.style.top = `${y}px`;
-  }
-
-  function jumpToDay(date, toNow) {
-    const dayEl = timeline.querySelector(`.day[data-date="${date}"]`);
-    if (!dayEl) return;
-    let y = dayEl.offsetTop - 60;
-
-    if (toNow) {
-      const now = new Date();
-      const min = now.getHours() * 60 + now.getMinutes();
-      y += min * PX_PER_MIN - 120;
-    }
-    timeline.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
-  }
-
-  timeline.addEventListener("scroll", () => {
-    const nearBottom = timeline.scrollTop + timeline.clientHeight > timeline.scrollHeight - 800;
-    if (!nearBottom) return;
-
-    const oldEnd = state.ui.loadedEnd;
-    const newEnd = addDays(oldEnd, 7);
-    state.ui.loadedEnd = newEnd;
-    saveState();
-
-    let cur = addDays(oldEnd, 1);
-    while (cur <= newEnd) {
-      timeline.appendChild(renderDay(cur));
-      cur = addDays(cur, 1);
-    }
-    updateNowLine();
-  });
-
-  /* ===== Clock ===== */
-  function startClock() {
-    const tick = () => {
-      const d = new Date();
-      clockText.textContent = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    };
-    tick();
-    if (window.__clockInterval) clearInterval(window.__clockInterval);
-    window.__clockInterval = setInterval(tick, 1000);
-    window.addEventListener("focus", tick);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
-  }
-
-  /* ===== Events ===== */
-  lifeDate.addEventListener("change", () => {
-    state.ui.lifeDate = lifeDate.value || fmtDate(new Date());
-    saveState();
-    applyRoutineToUI(state.ui.lifeDate);
-    renderLifeList();
-    renderTimeline(true);
-  });
-
-  const routineInputs = [
-    routineSchoolOn, routineClubOn,
-    routineCommuteAMStart, routineCommuteAMMin,
-    routineSchoolStart, routineSchoolEnd,
-    routineClubStart, routineClubEnd,
-    routineReturnMode, routineReturn2Start,
-    routineBathOn, routineBathMin,
-    routinePrepOn, routinePrepMin,
-    routineSleepOn, routineSleepStart, routineWake
-  ];
-  routineInputs.forEach(el => el.addEventListener("input", () => {
-    const date = lifeDate.value || fmtDate(new Date());
-
-    updateRoutineVisibility();
-
-    setRoutine(date, {
-      schoolOn: routineSchoolOn.value,
-      clubOn: routineClubOn.value,
-      commuteAMStart: routineCommuteAMStart.value || "07:30",
-      commuteAMMin: clamp(parseInt(routineCommuteAMMin.value || "60", 10), 1, 1000),
-      schoolStart: routineSchoolStart.value || "08:30",
-      schoolEnd: routineSchoolEnd.value || "15:00",
-      clubStart: routineClubStart.value || "16:10",
-      clubEnd: routineClubEnd.value || "18:30",
-      returnMode: routineReturnMode.value,
-      return2Start: routineReturn2Start.value || "19:00",
-      bathOn: routineBathOn.value,
-      bathMin: clamp(parseInt(routineBathMin.value || "60", 10), 1, 600),
-      prepOn: routinePrepOn.value,
-      prepMin: clamp(parseInt(routinePrepMin.value || "15", 10), 1, 600),
-      sleepOn: routineSleepOn.value,
-      sleepStart: routineSleepStart.value || "23:30",
-      wakeTime: routineWake.value || "06:30",
+    list.forEach(b => {
+      const title = b.title || "生活";
+      if (b.mode === "time" && b.start && b.end) {
+        const s = timeStrToMin(b.start);
+        const e = timeStrToMin(b.end);
+        if (Number.isFinite(s) && Number.isFinite(e) && e > s) {
+          blocks.push({ kind: "life", title, startTs: day0 + s * 60000, endTs: day0 + e * 60000 });
+        }
+      }
+      if (b.mode === "duration" && b.start && Number.isFinite(b.durationMin)) {
+        const s = timeStrToMin(b.start);
+        const e = s + clampInt(b.durationMin, 1, 600);
+        if (Number.isFinite(s) && e > s) {
+          blocks.push({ kind: "life", title, startTs: day0 + s * 60000, endTs: day0 + e * 60000 });
+        }
+      }
     });
 
-    validateRoutine(date);
-    renderLifeList();
-    renderTimeline(true);
-  }));
+    return blocks;
+  }
 
-  lifeType.addEventListener("change", syncLifeCustomUI);
-  $$('input[name="lifeMode"]').forEach(r => r.addEventListener("change", syncLifeModeUI));
+  function buildStudyBlocksForDay(dateKey, allBlocksSoFar) {
+    const tasks = getStudyTasks(dateKey);
+    if (!tasks.length) return [];
 
-  btnAddLife.addEventListener("click", () => {
-    setHidden(lifeAddHint, true);
-    const date = lifeDate.value || fmtDate(new Date());
-    const rawType = (lifeType.value || "").trim();
+    const dayDate = dateKeyToDate(dateKey);
+    const day0 = dayDate.getTime();
 
-    const type = (rawType === "-") ? (lifeCustom.value || "").trim() : rawType;
-    if (!type) { setHidden(lifeAddHint, false); return; }
+    // 勉強を入れていい開始時刻（授業前に入れない）
+    const L = getLifeSettings(dateKey);
+    const anchorAbsMin = computeStudyAnchorAbsMin(L);
 
-    let startMin = null, endMin = null;
-    if (lifeMode() === "duration") {
-      startMin = minutesOf(lifeStart.value);
-      const mins = clamp(parseInt(lifeMin.value || "1", 10), 1, 2000);
-      if (startMin == null) { setHidden(lifeAddHint, false); return; }
-      endMin = startMin + mins;
-    } else {
-      const a = minutesOf(lifeFrom.value);
-      const b = minutesOf(lifeTo.value);
-      if (a == null || b == null) { setHidden(lifeAddHint, false); return; }
-      startMin = a; endMin = b;
-      if (endMin <= startMin) endMin += 1440;
+    // 就寝があるなら、就寝開始の直前まで（風呂/準備の予約分があるため、生活ブロックにより空きが消える）
+    const sleep = computeSleepAbsWindow(L);
+    const dayEndAbsMin = (L.sleepUse === "あり" && sleep) ? sleep.startAbsMin : 24 * 60; // 就寝未設定は24:00まで
+
+    // 生活ブロック（当日）を集めて、空き時間を作る
+    const lifeBlocksThisDay = allBlocksSoFar
+      .filter(b => b.kind === "life")
+      .filter(b => sameDay(new Date(b.startTs), dayDate)); // start日基準
+
+    // 空きレンジ（絶対分）を作る
+    // - anchorAbsMin 〜 dayEndAbsMin の間で、lifeBlocks を避ける
+    const busy = lifeBlocksThisDay
+      .map(b => ({
+        s: minutesSinceDayStart(dayDate, new Date(b.startTs)),
+        e: minutesSinceDayStart(dayDate, new Date(b.endTs)),
+      }))
+      .filter(r => Number.isFinite(r.s) && Number.isFinite(r.e))
+      .map(r => ({ s: clampInt(r.s, 0, 2880), e: clampInt(r.e, 0, 2880) }))
+      .filter(r => r.e > r.s)
+      .sort((a, b) => a.s - b.s);
+
+    const free = subtractRanges([{ s: anchorAbsMin, e: dayEndAbsMin }], busy);
+
+    // 勉強ブロックを上から順に詰める
+    const blocks = [];
+    let freeIdx = 0;
+    let curMin = free.length ? free[0].s : null;
+
+    for (let i = 0; i < tasks.length; i++) {
+      if (curMin == null) break;
+
+      const t = tasks[i];
+      const need = estimateStudyMin(t);
+
+      // 次の入れ先を探す
+      while (freeIdx < free.length) {
+        const slot = free[freeIdx];
+        if (curMin < slot.s) curMin = slot.s;
+
+        // 入る？
+        if (curMin + need <= slot.e) break;
+
+        // 入らない → 次の空きへ
+        freeIdx++;
+        curMin = freeIdx < free.length ? free[freeIdx].s : null;
+        if (curMin == null) break;
+      }
+
+      if (curMin == null) break;
+
+      // 「入り切らない勉強がある場合は、この日の勉強リストの一番下のタスクを予定に入れない」
+      // → つまり、途中で入らない場合は最後の1つをスキップするのではなく、入らない時点で打ち切り
+      const slot = free[freeIdx];
+      if (!slot || curMin + need > slot.e) break;
+
+      blocks.push({
+        kind: "study",
+        taskId: t.id,
+        system: t.system,
+        subject: t.subject,
+        taskType: t.taskType,
+        ranges: t.ranges || [],
+        startTs: day0 + curMin * 60000,
+        endTs: day0 + (curMin + need) * 60000,
+      });
+
+      curMin += need;
     }
 
-    const block = { id: uid(), type, startMin, endMin };
+    return blocks;
+  }
 
-    const arr = state.lifeByDate[date] ? [...state.lifeByDate[date]] : [];
-    arr.push(block);
-    state.lifeByDate[date] = arr;
-    delete state.planCache[date];
-    delete state.planCache[addDays(date, 1)];
-    saveState();
-
-    renderLifeList();
-    renderTimeline(true);
-  });
-
-  btnClearLifeDay.addEventListener("click", () => {
-    const date = lifeDate.value || fmtDate(new Date());
-    state.lifeByDate[date] = [];
-    delete state.planCache[date];
-    delete state.planCache[addDays(date, 1)];
-    saveState();
-    renderLifeList();
-    renderTimeline(true);
-  });
-
-  studyDate.addEventListener("change", () => {
-    state.ui.studyDate = studyDate.value || fmtDate(new Date());
-    saveState();
-    renderStudyList();
-  });
-
-  studyCategory.addEventListener("change", () => { syncStudySubjectSelect(); syncStudyTaskTypeSelect(); autoUpdateStudyMin(); });
-  studySubject.addEventListener("change", () => { syncStudyTaskTypeSelect(); autoUpdateStudyMin(); });
-  studyOtherSubject.addEventListener("input", () => { syncStudyTaskTypeSelect(); autoUpdateStudyMin(); });
-  studyTaskType.addEventListener("change", () => { setHidden(studyTaskFreeWrap, studyTaskType.value !== "自由入力"); autoUpdateStudyMin(); });
-  studyTaskFree.addEventListener("input", autoUpdateStudyMin);
-  studyPerRangeMin.addEventListener("input", autoUpdateStudyMin);
-  btnAddRange.addEventListener("click", () => addRangeRow());
-
-  btnAddStudy.addEventListener("click", () => {
-    setHidden(studyAddHint, true);
-    const date = studyDate.value || fmtDate(new Date());
-    const cat = (studyCategory.value || "").trim();
-    const subject = resolveStudySubject();
-    const taskType = resolveTaskType();
-    if (!cat || !subject || !taskType) { setHidden(studyAddHint, false); return; }
-
-    const ranges = readRanges(rangesList);
-    const per = parseInt(studyPerRangeMin.value, 10);
-    const perRangeMin = (Number.isFinite(per) && per > 0) ? per : null;
-
-    let durationMin = clamp(parseInt(studyMin.value || "30", 10), 1, 2000);
-    if (perRangeMin) {
-      const auto = computeDurationFromPerRange(perRangeMin, ranges);
-      if (auto != null) durationMin = auto;
+  function estimateStudyMin(task) {
+    const steps = computeRangeSteps(task.ranges || []);
+    if (task.perRangeMin && Number.isFinite(task.perRangeMin) && task.perRangeMin > 0 && steps.length) {
+      // 範囲なし（steps 0）のときは durationMin
+      return steps.length * task.perRangeMin;
     }
+    return clampInt(task.durationMin ?? 30, 1, 600);
+  }
 
-    const deadline = (studyDeadline.value || "").trim();
+  function computeStudyAnchorAbsMin(L) {
+    // 授業があるなら授業終了後から
+    // 授業なしで部活ありなら部活終了後から
+    // 両方ありなら部活終了後（＝その日の固定最後）
+    const ends = [];
+    if (L.school === "あり" && L.classEnd) ends.push(timeStrToMin(L.classEnd));
+    if (L.club === "あり" && L.clubEnd) ends.push(timeStrToMin(L.clubEnd));
+    if (ends.length) return Math.max(...ends);
+    // どちらもないなら 0:00 から（ただし朝の移動など生活ブロックがあれば空きから外れる）
+    return 0;
+  }
 
-    const task = {
-      id: uid(),
-      category: cat,
-      subject,
-      taskType,
-      ranges,
-      perRangeMin,
-      durationMin,
-      deadlineHHMM: deadline,
-      createdAt: Date.now()
-    };
+  /* =========================================================
+     NOW / Timer tick
+     ========================================================= */
+  function startTick() {
+    if (tickTimer) return;
+    tickTimer = setInterval(() => {
+      // タイムラインキャッシュを更新（古すぎるなら）
+      const cache = state.__timelineCache;
+      if (!cache || Date.now() - (cache.builtAt || 0) > 8000) {
+        // 現在表示日ベースで再計算
+        const days = [
+          addDaysToKey(state.selectedDate, -1),
+          state.selectedDate,
+          addDaysToKey(state.selectedDate, +1),
+        ];
+        const blocks = buildTimelineBlocksForDays(days);
+        state.__timelineCache = { days, blocks, builtAt: Date.now() };
+      }
 
-    const arr = state.studyByDate[date] ? [...state.studyByDate[date]] : [];
-    arr.push(task);
-    state.studyByDate[date] = arr;
+      autoRunnerFromNow();
+      tickRunner();
+    }, 1000);
+  }
 
-    delete state.planCache[date];
-    saveState();
-
-    renderStudyList();
-    renderTimeline(true);
-  });
-
-  btnClearStudyDay.addEventListener("click", () => {
-    const date = studyDate.value || fmtDate(new Date());
-    state.studyByDate[date] = [];
-    delete state.planCache[date];
-    saveState();
-    renderStudyList();
-    renderTimeline(true);
-  });
-
-  btnAutoBuild.addEventListener("click", () => {
-    const date = studyDate.value || fmtDate(new Date());
-    buildPlanForDay(date);
-    renderTimeline(true);
-    setTab("timeline");
-    jumpToDay(date, true);
-  });
-
-  btnJumpNow.addEventListener("click", () => {
-    setTab("timeline");
-    jumpToDay(fmtDate(new Date()), true);
-  });
-
-  function renderStudyList() {
-    const date = studyDate.value || fmtDate(new Date());
-    const arr = state.studyByDate[date] || [];
-    studyList.innerHTML = "";
-
-    const plan = state.planCache[date];
-    const excluded = (plan && Array.isArray(plan.excludedTaskIds)) ? plan.excludedTaskIds : [];
-
-    if (arr.length === 0) {
-      studyList.appendChild(emptyLI("（この日はまだありません）"));
+  function autoRunnerFromNow() {
+    const nowBlock = getNowBlockFromTimelineCache();
+    if (!nowBlock) {
+      // 勉強中でなくなったら停止
+      if (state.runner.isRunning) runnerStop(false);
       return;
     }
 
-    arr.forEach((t, idx) => {
-      const li = document.createElement("li");
-      li.className = "li";
+    if (nowBlock.kind !== "study") {
+      if (state.runner.isRunning) runnerStop(false);
+      return;
+    }
 
-      const head = document.createElement("div");
-      head.className = "liHead";
-      head.style.borderLeftColor = CATEGORY_COLORS[t.category] || cssVar("--gray");
+    const taskId = nowBlock.taskId;
+    if (!taskId) return;
 
-      const title = document.createElement("div");
-      title.className = "liTitle";
-      title.textContent = `${t.subject}｜${t.taskType}`;
+    // 完了なら自動開始しない
+    if (isTaskComplete(taskId)) {
+      if (state.runner.isRunning && state.runner.activeTaskId === taskId) runnerStop(false);
+      return;
+    }
 
-      const steps = computeRangeSteps(t.ranges || []);
-      const perTxt = t.perRangeMin ? ` / 1範囲 ${t.perRangeMin}分` : "";
-      const meta = document.createElement("div");
-      meta.className = "liMeta";
+    // NOWに入ったら自動で開始
+    if (!state.runner.isRunning || state.runner.activeTaskId !== taskId) {
+      runnerStart(taskId, true);
+    }
+  }
 
-      const isExcluded = excluded.includes(t.id);
-      meta.textContent =
-        `見積 ${t.durationMin}分` +
-        perTxt +
-        (t.deadlineHHMM ? ` / 希望 ${t.deadlineHHMM}` : "") +
-        (steps.length ? ` / 範囲 ${steps.length}個` : "") +
-        (isExcluded ? " / （予定に入らない）" : "");
+  function tickRunner() {
+    if (!state.runner.isRunning || !state.runner.activeTaskId) return;
 
-      head.appendChild(title);
-      head.appendChild(meta);
-      li.appendChild(head);
+    const taskId = state.runner.activeTaskId;
+    const t = findStudyTaskAnyDate(taskId);
+    if (!t) return;
 
-      const btns = document.createElement("div");
-      btns.className = "liBtns";
+    const nowBlock = getNowBlockFromTimelineCache();
+    // いま勉強ブロック上にいないなら止める（移動/食事で中断してOK）
+    if (!nowBlock || nowBlock.kind !== "study" || nowBlock.taskId !== taskId) {
+      runnerStop(false);
+      return;
+    }
 
-      const up = mkBtn("↑", "btnMini btnGhost", () => moveStudyTask(date, idx, -1));
-      const dn = mkBtn("↓", "btnMini btnGhost", () => moveStudyTask(date, idx, +1));
-      up.disabled = (idx === 0);
-      dn.disabled = (idx === arr.length - 1);
+    const now = Date.now();
+    const dt = Math.max(0, now - (state.runner.lastTick || now));
+    state.runner.lastTick = now;
 
-      btns.appendChild(up);
-      btns.appendChild(dn);
+    const steps = getTaskSteps(t);
+    const p = ensureProgress(taskId, steps.length);
+    const totalSec = computeTotalSec(t);
 
-      btns.appendChild(mkBtn("編集", "btnGhost", () => openStudyEdit(date, t.id)));
-      btns.appendChild(mkBtn("✕", "btnGhost", () => deleteStudyTask(date, t.id)));
+    p.spentSec = Math.min(totalSec, (p.spentSec || 0) + Math.floor(dt / 1000));
+    state.progressByTask[taskId] = p;
+    saveState();
 
-      li.appendChild(btns);
-      studyList.appendChild(li);
+    // 完了で到着（ループ防止）
+    if (p.spentSec >= totalSec) {
+      if (state.runner.arrivalShownTaskId !== taskId) {
+        runnerStop(false);
+        openArrivalDialog(taskId);
+      } else {
+        runnerStop(false);
+      }
+    }
+  }
+
+  function getNowBlockFromTimelineCache() {
+    const cache = state.__timelineCache;
+    if (!cache || !cache.blocks) return null;
+    const now = Date.now();
+    return cache.blocks.find(b => b.startTs <= now && now < b.endTs) || null;
+  }
+
+  function getRemainSecToCurrentBlockEnd() {
+    const b = getNowBlockFromTimelineCache();
+    if (!b) return null;
+    const now = Date.now();
+    return Math.max(0, Math.floor((b.endTs - now) / 1000));
+  }
+
+  function scrollToNow() {
+    // タイムライン以外はタイムラインへ移動
+    if (state.view !== "timeline") {
+      state.view = "timeline";
+      saveState();
+      render();
+      setTimeout(scrollToNow, 60);
+      return;
+    }
+    const line = document.getElementById("nowLine");
+    if (line) {
+      line.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+    // nowLineが無い（当日が画面外など）なら当日セクションへ
+    const sec = document.querySelector(`[data-day="${dateKeyFromDate(new Date())}"]`);
+    if (sec) sec.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
+  /* =========================================================
+     Date row
+     ========================================================= */
+  function renderDateRow() {
+    const row = el("div", { class: "dateRow" });
+
+    const left = mkBtn("◀", "btnTiny", () => {
+      state.selectedDate = addDaysToKey(state.selectedDate, -1);
+      saveState();
+      render();
+      if (state.view === "timeline") setTimeout(scrollToNow, 60);
     });
+    const right = mkBtn("▶", "btnTiny", () => {
+      state.selectedDate = addDaysToKey(state.selectedDate, +1);
+      saveState();
+      render();
+      if (state.view === "timeline") setTimeout(scrollToNow, 60);
+    });
+
+    const d = dateKeyToDate(state.selectedDate);
+    const center = el("div", { class: "dateCenter" }, [
+      el("div", { class: "dateBig" }, [`${fmtMD(d)} ${WEEKDAYS[d.getDay()]}`]),
+      el("div", { class: "dateSmall" }, [state.selectedDate]),
+    ]);
+
+    row.appendChild(left);
+    row.appendChild(center);
+    row.appendChild(right);
+
+    return row;
   }
 
-  /* ===== Boot ===== */
-  function hydrate() {
-    const today = fmtDate(new Date());
+  /* =========================================================
+     Modal (custom) — confirm などは使わない
+     ========================================================= */
+  function renderModalLayer() {
+    const layer = el("div", { class: "modalLayer" + (state.ui.modalOpen ? " isOpen" : ""), id: "modalLayer" });
 
-    setTab(state.ui.activeTab || "life");
+    if (!state.ui.modalOpen) return layer;
 
-    lifeDate.value = state.ui.lifeDate || today;
-    studyDate.value = state.ui.studyDate || today;
+    const overlay = el("div", { class: "modalOverlay" });
+    overlay.addEventListener("click", closeModal);
 
-    applyRoutineToUI(lifeDate.value);
+    const modal = el("div", { class: "modal" });
 
-    lifeType.value = "-";
-    syncLifeCustomUI();
-    syncLifeModeUI();
+    const header = el("div", { class: "modalHeader" }, [
+      el("div", { class: "modalTitle" }, [state.ui.modalTitle || ""]),
+      mkBtn("✕", "btnX", closeModal),
+    ]);
 
-    studyCategory.value = "";
-    syncStudySubjectSelect();
-    syncStudyTaskTypeSelect();
-    setHidden(studyOtherSubjectWrap, true);
-    setHidden(studyTaskFreeWrap, true);
+    const body = state.ui.modalBody || el("div", {}, [""]);
+    body.classList.add("modalBody");
 
-    renderLifeList();
-    renderStudyList();
-    renderTimeline(true);
+    const footer = el("div", { class: "modalFooter" });
+    const btns = state.ui.modalButtons || [];
+    btns.forEach(b => footer.appendChild(b));
 
-    tickRunner();
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+
+    layer.appendChild(overlay);
+    layer.appendChild(modal);
+    return layer;
   }
 
-  initSelects();
-  hydrate();
-  startClock();
-  updateNowLine();
-  setInterval(updateNowLine, 30 * 1000);
+  function openModal(title, bodyNode, buttons) {
+    state.ui.modalOpen = true;
+    state.ui.modalTitle = title;
+    state.ui.modalBody = bodyNode;
+    state.ui.modalButtons = buttons || [];
+    saveState();
+    render();
+  }
 
-  setInterval(() => {
+  function closeModal() {
+    state.ui.modalOpen = false;
+    state.ui.modalTitle = "";
+    state.ui.modalBody = null;
+    state.ui.modalButtons = null;
+    saveState();
+    render();
+  }
+
+  /* =========================================================
+     Helpers: data access
+     ========================================================= */
+  function getLifeSettings(dateKey) {
+    if (!state.lifeByDate[dateKey]) {
+      state.lifeByDate[dateKey] = {
+        templateKey: "",
+        school: "なし",
+        club: "なし",
+        morningMoveStart: "7:30",
+        morningMoveMin: 60,
+        classStart: "8:30",
+        classEnd: "15:00",
+        clubStart: "15:00",
+        clubEnd: "18:30",
+        returnMoveMode: "60",
+        second30Start: "20:00",
+        bath: "あり",
+        bathMin: 60,
+        prep: "あり",
+        prepMin: 15,
+        sleepUse: "なし",
+        sleepTime: "23:00",
+        wakeTime: "7:00",
+      };
+      saveState();
+    }
+    return state.lifeByDate[dateKey];
+  }
+
+  function applyLifeTemplate(dateKey, templateKey) {
+    const t = LIFE_TEMPLATES[templateKey];
+    if (!t) return;
+    state.lifeByDate[dateKey] = { ...getLifeSettings(dateKey), ...t };
+    enforceSleepWindow(state.lifeByDate[dateKey]);
+    saveState();
+  }
+
+  function clearDayLife(dateKey) {
+    delete state.lifeByDate[dateKey];
+    delete state.lifeBlocksByDate[dateKey];
+  }
+
+  function getLifeBlocks(dateKey) {
+    if (!state.lifeBlocksByDate[dateKey]) state.lifeBlocksByDate[dateKey] = [];
+    return state.lifeBlocksByDate[dateKey];
+  }
+
+  function addLifeBlock(dateKey, block) {
+    const list = getLifeBlocks(dateKey);
+    list.push(block);
+  }
+
+  function removeLifeBlock(dateKey, id) {
+    const list = getLifeBlocks(dateKey);
+    state.lifeBlocksByDate[dateKey] = list.filter(b => b.id !== id);
+  }
+
+  function getStudyTasks(dateKey) {
+    if (!state.studyTasksByDate[dateKey]) state.studyTasksByDate[dateKey] = [];
+    return state.studyTasksByDate[dateKey];
+  }
+
+  function addStudyTask(dateKey, task) {
+    const list = getStudyTasks(dateKey);
+    list.push(task);
+  }
+
+  function removeStudyTask(dateKey, id) {
+    const list = getStudyTasks(dateKey);
+    state.studyTasksByDate[dateKey] = list.filter(t => t.id !== id);
+    // progressは残してOK（復活可能）
+  }
+
+  function moveStudyTask(dateKey, idx, dir) {
+    const list = getStudyTasks(dateKey);
+    const j = idx + dir;
+    if (j < 0 || j >= list.length) return;
+    const tmp = list[idx];
+    list[idx] = list[j];
+    list[j] = tmp;
+    saveState();
+    render();
+  }
+
+  function findStudyTaskById(dateKey, id) {
+    return getStudyTasks(dateKey).find(t => t.id === id) || null;
+  }
+
+  function findStudyTaskAnyDate(id) {
+    const keys = Object.keys(state.studyTasksByDate || {});
+    for (const k of keys) {
+      const t = (state.studyTasksByDate[k] || []).find(x => x.id === id);
+      if (t) return t;
+    }
+    // selectedDateも確認
+    return findStudyTaskById(state.selectedDate, id);
+  }
+
+  function systemByKey(key) {
+    return STUDY_SYSTEMS.find(s => s.key === key) || STUDY_SYSTEMS[5];
+  }
+
+  function subjectOptionsForSystem(sysKey) {
+    const arr = SUBJECTS_BY_SYSTEM[sysKey] || ["その他"];
+    return arr.map(v => ({ value: v, label: v }));
+  }
+
+  function taskTypeOptionsForSubject(subject) {
+    // その他は「教科書以上からも選択」→ 全部 + カスタム
+    if (subject === "その他") {
+      const set = new Set(["教科書"]);
+      Object.values(TASK_TYPES_BY_SUBJECT).forEach(list => list.forEach(x => set.add(x)));
+      const all = Array.from(set);
+      return [
+        ...all.map(v => ({ value: v, label: v })),
+        { value: "（自由入力）", label: "（自由入力）" },
+      ];
+    }
+    const list = TASK_TYPES_BY_SUBJECT[subject] || ["教科書"];
+    return list.map(v => ({ value: v, label: v }));
+  }
+
+  function pickDefaultSubject(sysKey, subjectText) {
+    const opts = SUBJECTS_BY_SYSTEM[sysKey] || ["その他"];
+    if (opts.includes(subjectText)) return subjectText;
+    // "その他系"で具体名が入ってる場合は科目は "その他"
+    if (sysKey === "other") return "その他";
+    return opts[0];
+  }
+
+  /* =========================================================
+     Range parsing / steps
+     ========================================================= */
+  function computeRangeSteps(ranges) {
+    const out = [];
+    (ranges || []).forEach(r => {
+      const a = (r.start || "").trim();
+      const b = (r.end || "").trim();
+      if (!a && !b) return;
+
+      // どちらか空ならそのまま1つ
+      if (!a || !b) {
+        out.push(a || b);
+        return;
+      }
+
+      const pa = parsePrefixInt(a);
+      const pb = parsePrefixInt(b);
+
+      // 両方整数prefixが取れたら、inclusiveで展開
+      if (pa != null && pb != null) {
+        const s = pa, e = pb;
+        if (s === e) {
+          // 71-71 → 71 を 1個（多重にはしない）
+          out.push(a); // 文字列として開始側を優先
+          return;
+        }
+        const step = s < e ? 1 : -1;
+        for (let x = s; x !== e; x += step) {
+          if (x === s) out.push(a);       // 開始の原文
+          else out.push(String(x));       // 中間は整数だけ
+        }
+        out.push(b); // 終了の原文
+        return;
+      }
+
+      // 整数扱いできない場合は "a - b"
+      out.push(`${a} - ${b}`);
+    });
+    return out;
+  }
+
+  function parsePrefixInt(s) {
+    // "11(2-3)" -> 11, "15(3)" -> 15, "12" -> 12
+    const m = String(s).match(/^(\d+)/);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function renderRangeSummary(ranges) {
+    // ざっくり表示（先頭2つくらい）
+    const steps = computeRangeSteps(ranges);
+    if (!steps.length) return "—";
+    if (steps.length <= 2) return steps.join(", ");
+    return `${steps[0]}, ${steps[1]} …（${steps.length}件）`;
+  }
+
+  /* =========================================================
+     Sleep window (abs minutes)
+     ========================================================= */
+  function computeSleepAbsWindow(L) {
+    if (!L || L.sleepUse !== "あり") return null;
+    if (!L.sleepTime || !L.wakeTime) return null;
+
+    const s = timeStrToMin(L.sleepTime);
+    const w = timeStrToMin(L.wakeTime);
+    if (!Number.isFinite(s) || !Number.isFinite(w)) return null;
+
+    // 就寝が「日付変更後」の場合は翌日扱い（例 1:00 => 1500）
+    const sleepStartAbs = (s < 12 * 60) ? (24 * 60 + s) : s;
+
+    // 起床は「就寝からの経過」で決める（同日/翌日を自動判定）
+    // 例：就寝 23:00(1380) 起床 7:00(420) → + (24h - 1380 + 420) = 480
+    // 例：就寝 1:00(1500) 起床 7:00(420) → + (420 - 60)=360
+    // 基準は「就寝の時刻（0-1439）」でも良いが、ここでは absStart から差分
+    const sleepStartClock = s; // 0-1439
+    let diff;
+    if (w >= sleepStartClock) diff = w - sleepStartClock;
+    else diff = (24 * 60 - sleepStartClock) + w;
+
+    // 9時間以内に補正
+    const max = 9 * 60;
+    if (diff > max) diff = max;
+
+    const sleepEndAbs = sleepStartAbs + diff;
+
+    return { startAbsMin: sleepStartAbs, endAbsMin: sleepEndAbs };
+  }
+
+  function enforceSleepWindow(L) {
+    // 起床が就寝から9h超なら起床を自動調整
+    const win = computeSleepAbsWindow(L);
+    if (!win) return;
+    const diff = win.endAbsMin - win.startAbsMin;
+    if (diff > 9 * 60) {
+      // ここには来ない（compute で丸める）が保険
+      const capped = win.startAbsMin + 9 * 60;
+      L.wakeTime = fmtMinToHM(capped % (24 * 60));
+    }
+  }
+
+  function computeSleepWarnText(L) {
+    const win = computeSleepAbsWindow(L);
+    if (!win) return "";
+    const diff = win.endAbsMin - win.startAbsMin;
+    if (diff >= 9 * 60) return "起床時刻が就寝から9時間以内になるように補正されます。";
+    return "";
+  }
+
+  /* =========================================================
+     Utilities: time / date
+     ========================================================= */
+  function timeStrToMin(hm) {
+    const s = String(hm || "").trim();
+    if (!s) return null;
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const h = parseInt(m[1], 10);
+    const mi = parseInt(m[2], 10);
+    if (!Number.isFinite(h) || !Number.isFinite(mi)) return null;
+    if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+    return h * 60 + mi;
+  }
+
+  function fmtMinToHM(min) {
+    const m = ((min % (24 * 60)) + (24 * 60)) % (24 * 60);
+    const h = Math.floor(m / 60);
+    const mi = m % 60;
+    return `${h}:${String(mi).padStart(2, "0")}`;
+  }
+
+  function fmtHM(d) {
+    const h = d.getHours();
+    const m = d.getMinutes();
+    return `${h}:${String(m).padStart(2, "0")}`;
+  }
+
+  function fmtMS(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function fmtMD(d) {
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  }
+
+  function dateKeyFromDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function dateKeyToDate(key) {
+    const [y, m, d] = key.split("-").map(n => parseInt(n, 10));
+    return new Date(y, (m - 1), d, 0, 0, 0, 0);
+  }
+
+  function addDaysToKey(key, n) {
+    const d = dateKeyToDate(key);
+    d.setDate(d.getDate() + n);
+    return dateKeyFromDate(d);
+  }
+
+  function sameDay(a, b) {
+    return a.getFullYear() === b.getFullYear() &&
+           a.getMonth() === b.getMonth() &&
+           a.getDate() === b.getDate();
+  }
+
+  function minutesSinceDayStart(dayStartDate, dt) {
+    const day0 = new Date(dayStartDate.getFullYear(), dayStartDate.getMonth(), dayStartDate.getDate(), 0, 0, 0, 0).getTime();
+    return Math.floor((dt.getTime() - day0) / 60000);
+  }
+
+  function addMinHM(hm, mins) {
+    const m = timeStrToMin(hm);
+    if (m == null) return "";
+    return fmtMinToHM(m + mins);
+  }
+
+  function buildSecondMoveStarts() {
+    // 17:00〜21:30、00/15/30 分のみ
+    const opts = [];
+    for (let h = 17; h <= 21; h++) {
+      [0, 15, 30].forEach(mi => {
+        if (h === 21 && mi > 30) return;
+        const v = `${h}:${String(mi).padStart(2, "0")}`;
+        opts.push({ value: v, label: v });
+      });
+    }
+    // 21:30 を追加済み。18:15 等も必要なら手動で入れてOK（テンプレ sat で使う）
+    // 18:15が必要なので上の生成に含まれる（18:15）
+    return opts;
+  }
+
+  function formatReturnMoveLabel(mode) {
+    const opt = RETURN_MOVE_OPTIONS.find(o => o.value === mode);
+    return opt ? opt.label : "—";
+  }
+
+  /* =========================================================
+     Range helpers for free/busy subtraction
+     ========================================================= */
+  function subtractRanges(baseRanges, busyRanges) {
+    // baseRanges: [{s,e}] から busyRanges を引いて free を返す
+    let free = baseRanges.slice();
+
+    busyRanges.forEach(b => {
+      free = free.flatMap(r => {
+        if (b.e <= r.s || r.e <= b.s) return [r]; // no overlap
+        const out = [];
+        if (r.s < b.s) out.push({ s: r.s, e: b.s });
+        if (b.e < r.e) out.push({ s: b.e, e: r.e });
+        return out;
+      });
+    });
+
+    // 正規化
+    free = free.filter(r => r.e > r.s).sort((a, b) => a.s - b.s);
+    return free;
+  }
+
+  function mergeAdjacentSameBlocks(blocks) {
+    if (!blocks.length) return blocks;
+    const sorted = blocks.slice().sort((a, b) => a.startTs - b.startTs);
+
+    const out = [];
+    for (const b of sorted) {
+      const last = out[out.length - 1];
+      if (!last) { out.push(b); continue; }
+
+      const same =
+        last.kind === b.kind &&
+        last.kind === "study" &&
+        last.taskId === b.taskId &&
+        last.endTs === b.startTs; // 連続
+
+      // 生活は結合しない（見た目が崩れやすい）
+      if (same) {
+        last.endTs = b.endTs;
+      } else {
+        out.push(b);
+      }
+    }
+    return out;
+  }
+
+  function dropOverlaps(blocks) {
+    if (!blocks.length) return blocks;
+    const sorted = blocks.slice().sort((a, b) => a.startTs - b.startTs);
+    const out = [];
+    let lastEnd = -Infinity;
+
+    for (const b of sorted) {
+      if (b.startTs >= lastEnd) {
+        out.push(b);
+        lastEnd = b.endTs;
+      } else {
+        // 重複：短い方を落とすか、開始を詰める。ここでは「落とす」。
+        // ただし、生活優先（生活は残す）
+        const last = out[out.length - 1];
+        if (last && last.kind === "life" && b.kind === "study") {
+          continue;
+        }
+        if (last && last.kind === "study" && b.kind === "life") {
+          // 生活を優先：最後を除いて生活を入れる
+          out.pop();
+          out.push(b);
+          lastEnd = b.endTs;
+          continue;
+        }
+        // 同種はそのまま落とす
+      }
+    }
+    return out;
+  }
+
+  /* =========================================================
+     UI helpers
+     ========================================================= */
+  function el(tag, attrs = {}, children = []) {
+    const node = document.createElement(tag);
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (k === "class") node.className = v;
+      else if (k.startsWith("data-")) node.setAttribute(k, v);
+      else node.setAttribute(k, v);
+    });
+    (children || []).forEach(c => node.appendChild(typeof c === "string" ? document.createTextNode(c) : c));
+    return node;
+  }
+
+  function labeled(label, inputEl) {
+    const w = el("div", { class: "field" });
+    w.appendChild(el("div", { class: "label" }, [label]));
+    w.appendChild(inputEl);
+    return w;
+  }
+
+  function labeledInline(label, inputEl) {
+    const w = el("div", { class: "fieldInline" });
+    w.appendChild(el("div", { class: "labelInline" }, [label]));
+    w.appendChild(inputEl);
+    return w;
+  }
+
+  function mkBtn(text, cls, onClick) {
+    const b = el("button", { type: "button", class: `btn ${cls || ""}` }, [text]);
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function mkInput(_label, value) {
+    const i = el("input", { class: "input", value: value ?? "" });
+    i.type = "text";
+    return i;
+  }
+
+  function mkNumber(value, min, max, step) {
+    const i = el("input", { class: "input" });
+    i.type = "number";
+    if (value !== "" && value != null) i.value = String(value);
+    if (min != null) i.min = String(min);
+    if (max != null) i.max = String(max);
+    if (step != null) i.step = String(step);
+    return i;
+  }
+
+  function mkSelect(options, value) {
+    const s = el("select", { class: "select" });
+    options.forEach(o => s.appendChild(mkOption(o.value, o.label)));
+    s.value = value ?? "";
+    return s;
+  }
+
+  function mkOption(value, label) {
+    const o = el("option", { value: String(value) }, [String(label)]);
+    return o;
+  }
+
+  function mkTimeSelect(value) {
+    const options = [{ value: "", label: "" }];
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 5) {
+        options.push({ value: `${h}:${String(m).padStart(2, "0")}`, label: `${h}:${String(m).padStart(2, "0")}` });
+      }
+    }
+    return mkSelect(options, value ?? "");
+  }
+
+  function mkRadio(name, value, label, checked) {
+    const input = el("input", { type: "radio" });
+    input.name = name;
+    input.value = value;
+    input.checked = !!checked;
+
+    const span = el("span", { class: "radioLabel" }, [label]);
+    const wrap = el("label", { class: "radioWrap" }, [input, span]);
+    return { input, wrap };
+  }
+
+  function toast(msg) {
+    const t = el("div", { class: "toast" }, [msg]);
+    document.body.appendChild(t);
+    setTimeout(() => t.classList.add("show"), 10);
+    setTimeout(() => {
+      t.classList.remove("show");
+      setTimeout(() => t.remove(), 220);
+    }, 1200);
+  }
+
+  function clampInt(v, min, max) {
+    const n = parseInt(String(v), 10);
+    if (!Number.isFinite(n)) return min;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function uid() {
+    return Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
+  }
+
+  /* =========================================================
+     Persistence
+     ========================================================= */
+  function saveState() {
+    // UIのDOM参照は保存しない
+    const copy = JSON.parse(JSON.stringify(state));
+    delete copy.__timelineCache;
+    if (copy.ui) {
+      copy.ui.modalOpen = false;
+      copy.ui.modalTitle = "";
+      delete copy.ui.modalBody;
+      delete copy.ui.modalButtons;
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify(copy));
+  }
+
+  function loadState() {
     try {
-      autoStartFromNow();
-      tickRunner();
-    } catch {}
-  }, 1000);
-});
+      const s = localStorage.getItem(LS_KEY);
+      if (!s) return null;
+      const obj = JSON.parse(s);
+      // 互換のため最低限補完
+      if (!obj.view) obj.view = "timeline";
+      if (!obj.selectedDate) obj.selectedDate = dateKeyFromDate(new Date());
+      if (!obj.lifeByDate) obj.lifeByDate = {};
+      if (!obj.lifeBlocksByDate) obj.lifeBlocksByDate = {};
+      if (!obj.studyTasksByDate) obj.studyTasksByDate = {};
+      if (!obj.progressByTask) obj.progressByTask = {};
+      if (!obj.runner) obj.runner = { activeTaskId: null, isRunning: false, lastTick: 0, pausedByUser: false, arrivalShownTaskId: null };
+      if (!obj.ui) obj.ui = { modalOpen: false, modalTitle: "" };
+      obj.ui.modalOpen = false;
+      return obj;
+    } catch {
+      return null;
+    }
+  }
+
+  /* =========================================================
+     CSS injection (single-file style)
+     ========================================================= */
+  function injectCSS() {
+    const css = `
+      :root{
+        --bg:${COLORS.bg};
+        --panel:${COLORS.panel};
+        --card:${COLORS.card};
+        --line:${COLORS.line};
+        --text:${COLORS.text};
+        --sub:${COLORS.sub};
+      }
+      *{box-sizing:border-box;}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif;}
+      .app{min-height:100vh;display:flex;flex-direction:column;}
+      .topbar{
+        position:sticky; top:0; z-index:20;
+        display:grid; grid-template-columns: 1fr auto auto;
+        gap:10px; align-items:center;
+        padding:10px 12px;
+        background:linear-gradient(180deg, rgba(15,21,33,.98), rgba(11,15,23,.96));
+        border-bottom:1px solid var(--line);
+      }
+      .brandTitle{font-weight:1000; letter-spacing:.2px;}
+      .topbarMid{display:flex; justify-content:flex-start;}
+      .topbarRight{display:flex; align-items:center; gap:10px; justify-content:flex-end;}
+      .clock{font-weight:1000; opacity:.92;}
+      .remainPill{
+        display:flex; flex-direction:column; align-items:flex-start;
+        padding:8px 10px; border:1px solid var(--line); border-radius:14px;
+        background:rgba(255,255,255,.03);
+        min-width:160px;
+      }
+      .remainSub{font-size:12px; color:var(--sub); font-weight:1000;}
+      .remainBig{font-size:18px; font-weight:1000; letter-spacing:.2px;}
+
+      .tabs{
+        position:sticky; top:54px; z-index:19;
+        display:flex; gap:10px;
+        padding:10px 12px;
+        background:rgba(11,15,23,.96);
+        border-bottom:1px solid var(--line);
+      }
+      .tab{
+        flex:1;
+        padding:12px 10px;
+        border-radius:16px;
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.03);
+        color:var(--sub);
+        font-weight:1000;
+        font-size:16px;
+      }
+      .tab.isActive{
+        color:var(--text);
+        border-color:rgba(255,255,255,.20);
+        background:rgba(255,255,255,.06);
+      }
+
+      .content{padding:12px; display:flex; flex-direction:column; gap:12px;}
+      .panel{display:flex; flex-direction:column; gap:12px;}
+      .card{
+        background:linear-gradient(180deg, rgba(17,26,42,.98), rgba(15,21,33,.96));
+        border:1px solid var(--line);
+        border-radius:20px;
+        padding:12px;
+        box-shadow: 0 10px 28px rgba(0,0,0,.25);
+      }
+      .cardTitle{font-weight:1000; font-size:16px; margin-bottom:10px;}
+      .muted{color:var(--sub); font-weight:900; padding:6px 2px;}
+      .mutedSmall{color:var(--sub); font-weight:900; font-size:12px;}
+      .warn{margin-top:8px; color:#ffcc66; font-weight:1000; font-size:12px;}
+
+      .dateRow{
+        display:grid; grid-template-columns: 44px 1fr 44px;
+        gap:10px; align-items:center;
+        padding:10px 12px;
+        border:1px solid var(--line);
+        border-radius:18px;
+        background:rgba(255,255,255,.03);
+      }
+      .dateCenter{display:flex; flex-direction:column; align-items:center;}
+      .dateBig{font-weight:1000;}
+      .dateSmall{font-size:12px; color:var(--sub); font-weight:900;}
+
+      .grid2{display:grid; grid-template-columns: 1fr 1fr; gap:10px;}
+      @media (max-width: 420px){ .grid2{grid-template-columns: 1fr;} }
+
+      .field{display:flex; flex-direction:column; gap:6px;}
+      .label{font-size:12px; color:var(--sub); font-weight:1000;}
+      .input,.select{
+        width:100%;
+        padding:12px 12px;
+        border-radius:14px;
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.03);
+        color:var(--text);
+        font-weight:1000;
+        font-size:16px;
+        outline:none;
+      }
+      .select{appearance:none;}
+      .sepTop{margin-top:12px; padding-top:12px; border-top:1px solid var(--line);}
+
+      .row{display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top:10px; flex-wrap:wrap;}
+      .rowTight{display:flex; gap:10px; align-items:center;}
+      .btn{
+        border-radius:14px;
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.04);
+        color:var(--text);
+        font-weight:1000;
+        font-size:16px;
+        padding:10px 12px;
+      }
+      .btn:active{transform: translateY(1px);}
+      .btnPrimary{
+        border-color:rgba(255,255,255,.22);
+        background:rgba(255,255,255,.09);
+      }
+      .btnGhost{
+        color:var(--sub);
+        background:rgba(255,255,255,.02);
+      }
+      .btnX{
+        width:44px; min-width:44px;
+        padding:10px 0;
+        text-align:center;
+        background:rgba(255,255,255,.03);
+        color:rgba(240,244,255,.78);
+      }
+      .btnTiny{
+        width:44px; min-width:44px;
+        padding:10px 0;
+        text-align:center;
+        background:rgba(255,255,255,.03);
+        color:rgba(240,244,255,.78);
+      }
+
+      .listBox{display:flex; flex-direction:column; gap:10px;}
+      .listRow{
+        display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
+        padding:10px;
+        border:1px solid var(--line);
+        border-radius:16px;
+        background:rgba(255,255,255,.03);
+      }
+      .listMain{flex:1; min-width:0;}
+      .listTitle{font-weight:1000; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+      .listSub{font-size:12px; color:var(--sub); font-weight:900; margin-top:4px;}
+      .listRight{display:flex; gap:8px; align-items:center;}
+      .studyRow{cursor:pointer;}
+      .sysPill{
+        padding:6px 10px;
+        border-radius:999px;
+        color:#0b0f17;
+        font-weight:1000;
+        font-size:12px;
+        white-space:nowrap;
+      }
+      .rightTag{
+        margin-left:auto;
+        font-size:12px;
+        color:var(--sub);
+        font-weight:1000;
+      }
+
+      .modeRow{
+        display:flex; gap:12px;
+        padding:8px 2px;
+      }
+      .radioWrap{display:flex; align-items:center; gap:8px; color:var(--sub); font-weight:1000;}
+      .radioWrap input{transform: scale(1.1);}
+
+      .rangesBox{
+        margin-top:10px;
+        padding-top:10px;
+        border-top:1px solid var(--line);
+      }
+      .rangesTitle{font-weight:1000; margin-bottom:8px;}
+      .rangesList{display:flex; flex-direction:column; gap:10px;}
+      .rangeRow{
+        display:flex; gap:10px; align-items:flex-start;
+      }
+      .rangeStack{
+        flex:1;
+        display:flex; flex-direction:column; gap:10px;
+      }
+      .fieldInline{display:flex; flex-direction:column; gap:6px;}
+      .labelInline{font-size:12px; color:var(--sub); font-weight:1000;}
+
+      /* Timeline */
+      .timeline{display:flex; flex-direction:column; gap:0;}
+      .daySection{
+        display:grid; grid-template-columns: 56px 1fr;
+        gap:0;
+        border-top:1px solid var(--line);
+      }
+      .dayLabel{
+        padding:10px 6px;
+        border-right:1px solid var(--line);
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:flex-start;
+        gap:6px;
+        background:rgba(255,255,255,.02);
+      }
+      .dayDate{font-weight:1000; font-size:14px;}
+      .dayWday{font-weight:1000; font-size:12px; color:var(--sub);}
+      .dayLane{
+        position:relative;
+        background:rgba(255,255,255,.01);
+        overflow:visible;
+      }
+      .ticks{position:absolute; left:0; right:0; top:0; bottom:0; pointer-events:none;}
+      .tick{position:absolute; left:0; right:0; height:0;}
+      .tickLabel{
+        position:absolute; left:10px; top:-10px;
+        font-size:11px; color:rgba(240,244,255,.50); font-weight:900;
+        background:rgba(11,15,23,.65);
+        padding:2px 6px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,.08);
+      }
+      .tickLine{
+        position:absolute; left:0; right:0; top:0;
+        height:1px; background:rgba(255,255,255,.06);
+      }
+      .nowLine{
+        position:absolute; left:0; right:0;
+        height:0;
+        border-top:2px dashed rgba(255,255,255,.55);
+        z-index:5;
+        pointer-events:none;
+      }
+
+      .blockCard{
+        position:absolute; left:10px; right:10px;
+        border-radius:16px;
+        border:1px solid rgba(255,255,255,.10);
+        background:rgba(17,26,42,.92);
+        padding:10px 10px 10px 12px;
+        box-shadow:0 10px 24px rgba(0,0,0,.20);
+        z-index:6;
+        overflow:hidden;
+      }
+      .blockTime{font-size:12px; color:rgba(240,244,255,.70); font-weight:1000;}
+      .blockTitle{font-size:14px; font-weight:1000; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+      .blockSub{font-size:12px; color:rgba(240,244,255,.60); font-weight:900; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+      /* Modal */
+      .modalLayer{position:fixed; inset:0; display:none; z-index:50;}
+      .modalLayer.isOpen{display:block;}
+      .modalOverlay{position:absolute; inset:0; background:rgba(0,0,0,.55);}
+      .modal{
+        position:absolute; left:12px; right:12px; top:12px; bottom:12px;
+        background:linear-gradient(180deg, rgba(17,26,42,.98), rgba(15,21,33,.98));
+        border:1px solid rgba(255,255,255,.12);
+        border-radius:20px;
+        display:flex; flex-direction:column;
+        overflow:hidden;
+      }
+      .modalHeader{
+        display:flex; align-items:center; justify-content:space-between;
+        padding:12px;
+        border-bottom:1px solid rgba(255,255,255,.10);
+      }
+      .modalTitle{font-weight:1000; font-size:16px;}
+      .modalBody{
+        flex:1;
+        overflow:auto;
+        padding:12px;
+      }
+      .modalBodyScroll{display:flex; flex-direction:column; gap:10px;}
+      .modalFooter{
+        padding:12px;
+        border-top:1px solid rgba(255,255,255,.10);
+        display:flex; gap:10px; justify-content:flex-end;
+      }
+
+      .runnerTitle{font-weight:1000; font-size:16px;}
+      .runnerTimeBox{
+        border:1px solid rgba(255,255,255,.12);
+        border-radius:18px;
+        background:rgba(255,255,255,.03);
+        padding:12px;
+      }
+      .runnerTimeBig{font-size:34px; font-weight:1000; text-align:center;}
+      .runnerTimeSmall{font-size:12px; color:var(--sub); font-weight:1000; text-align:center; margin-top:6px;}
+      .runnerProg{text-align:right; color:var(--sub); font-weight:1000;}
+      .stepsBox{display:flex; flex-direction:column; gap:10px;}
+      .stepBtn{
+        width:100%;
+        text-align:left;
+        padding:12px 12px;
+        border-radius:16px;
+        border:1px solid rgba(255,255,255,.10);
+        background:rgba(255,255,255,.03);
+        color:var(--text);
+        font-weight:1000;
+        display:flex;
+        justify-content:space-between;
+        gap:10px;
+      }
+      .stepBtn.isDone{
+        background:rgba(255,255,255,.08);
+        border-color:rgba(255,255,255,.18);
+      }
+      .stepRight{color:rgba(240,244,255,.70); font-weight:1000;}
+
+      .arrivalBig{font-size:42px; font-weight:1000; text-align:center; margin-top:10px;}
+      .arrivalSub{font-size:14px; font-weight:1000; color:var(--sub); text-align:center; margin-top:6px;}
+
+      .infoGrid{display:flex; flex-direction:column; gap:8px;}
+      .infoRow{display:flex; justify-content:space-between; gap:10px; padding:10px; border:1px solid rgba(255,255,255,.10); border-radius:16px; background:rgba(255,255,255,.03);}
+      .infoKey{color:var(--sub); font-weight:1000;}
+      .infoVal{font-weight:1000;}
+
+      .toast{
+        position:fixed; left:50%; bottom:16px;
+        transform:translateX(-50%) translateY(12px);
+        opacity:0;
+        background:rgba(17,26,42,.95);
+        border:1px solid rgba(255,255,255,.12);
+        color:var(--text);
+        font-weight:1000;
+        padding:10px 14px;
+        border-radius:999px;
+        transition: all .2s ease;
+        z-index:80;
+      }
+      .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+    `;
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  /* ===== Init ===== */
+  // 確認ダイアログなどは一切出さない（ユーザー操作でのみモーダル）
+  render();
+  startTick();
+
+})();
