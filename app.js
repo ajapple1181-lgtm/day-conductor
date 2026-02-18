@@ -1,7 +1,7 @@
 "use strict";
 
 window.addEventListener("DOMContentLoaded", () => {
-  const LS_KEY = "daily_planner_v14"; // ★データ保持のためキーは変えない
+  const LS_KEY = "daily_planner_v14"; // データ保持のためキーは維持
   const DAY_MIN = 1440;
   const PX_PER_MIN = 1.25;
 
@@ -142,8 +142,9 @@ window.addEventListener("DOMContentLoaded", () => {
         activeTaskId: null,
         isRunning: false,
         lastTick: 0,
-        pausedByUser: false,
-        lastAutoTaskId: null
+        pausedByUser: false,      // UI上は一時停止を削除したので基本falseのまま
+        lastAutoTaskId: null,
+        arrivalShownTaskId: null, // ★到着ループ防止
       },
       ui: {
         activeTab: "life",
@@ -691,7 +692,7 @@ window.addEventListener("DOMContentLoaded", () => {
     ].sort((a, b) => a.startMin - b.startMin);
   }
 
-  /* ===== Life UI (一部省略：ここは前と同じ) ===== */
+  /* ===== Life UI ===== */
   const lifeMode = () => (document.querySelector('input[name="lifeMode"]:checked')?.value || "duration");
 
   function syncLifeCustomUI() {
@@ -761,9 +762,6 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function openLifeEdit(block) {
-    // 生活側の編集は今まで通り（省略してもOK）
-    // ※ここは前の版と同じロジックなので、あなたが今使ってるapp.jsから移植しても良い
-    // 今回の要望は勉強側と自動組み立ての修正が中心
     openLifeInfo(block.date, block);
   }
 
@@ -930,6 +928,7 @@ window.addEventListener("DOMContentLoaded", () => {
       state.runner.isRunning = false;
       state.runner.lastTick = 0;
       state.runner.pausedByUser = false;
+      state.runner.arrivalShownTaskId = null;
     }
 
     delete state.planCache[date];
@@ -939,7 +938,6 @@ window.addEventListener("DOMContentLoaded", () => {
     renderTimeline(true);
   }
 
-  // ★追加：勉強リストの順番入れ替え
   function moveStudyTask(date, index, dir) {
     const arr = state.studyByDate[date] ? [...state.studyByDate[date]] : [];
     const j = index + dir;
@@ -959,9 +957,6 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function openStudyEdit(date, taskId) {
-    // ここは前バージョンと同じ（長いので省略）
-    // ただし「編集」ボタンは残してあるので、あなたの現行app.jsの openStudyEdit を貼り替えてOK
-    // （今回の要望の中心は「順番変更」「実行ボタン削除」「溢れたら下から落とす」）
     const found = findTaskById(taskId);
     if (!found) return;
     openEditor("勉強 編集", document.createElement("div"), [mkBtn("キャンセル", "btnGhost", closeEditor)]);
@@ -998,6 +993,18 @@ window.addEventListener("DOMContentLoaded", () => {
     return (doneSteps || []).reduce((a, b) => a + (b ? 1 : 0), 0);
   }
 
+  function isTaskComplete(taskId) {
+    const found = findTaskById(taskId);
+    if (!found) return false;
+    const task = found.task;
+    const steps = getTaskSteps(task);
+    const p = ensureProgress(taskId, steps.length);
+    const totalSec = computeTotalSec(task);
+    const doneAll = (countDone(p.doneSteps) === steps.length);
+    const spentAll = ((p.spentSec || 0) >= totalSec);
+    return doneAll || spentAll;
+  }
+
   function setRemainPill(task, remainSec) {
     if (!task) { remainPill.hidden = true; return; }
     remainSubj.textContent = task.subject;
@@ -1007,6 +1014,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function runnerStart(taskId, auto = false) {
     if (!taskId) return;
+    // ★同じタスクを再実行する可能性に備えて、到着抑止フラグは開始時に解除
+    state.runner.arrivalShownTaskId = null;
+
     state.runner.activeTaskId = taskId;
     state.runner.isRunning = true;
     state.runner.lastTick = Date.now();
@@ -1021,7 +1031,16 @@ window.addEventListener("DOMContentLoaded", () => {
     saveState();
   }
 
+  // ★到着ループ対策：到着を出す瞬間に active を解除しておく
   function openArrivalDialog(taskId) {
+    state.runner.arrivalShownTaskId = taskId;
+
+    state.runner.activeTaskId = null;
+    state.runner.isRunning = false;
+    state.runner.lastTick = 0;
+    state.runner.pausedByUser = false;
+    saveState();
+
     const found = findTaskById(taskId);
     const name = found ? `${found.task.subject}｜${found.task.taskType}` : "完了";
 
@@ -1103,65 +1122,207 @@ window.addEventListener("DOMContentLoaded", () => {
         if (countDone(p.doneSteps) === steps.length) {
           runnerStop(false);
           openArrivalDialog(taskId);
-        }
-      });
-      return b;
-    });
-    stepBtns.forEach(b => stepsBox.appendChild(b));
 
-    const btnToggle = mkBtn("開始", "btnPrimary", () => {
-      if (state.runner.activeTaskId !== taskId) state.runner.activeTaskId = taskId;
-      if (state.runner.isRunning) runnerStop(true);
-      else { state.runner.pausedByUser = false; runnerStart(taskId, false); }
-      renderRunner();
-    });
+/* ===== Runner / Progress ===== */
+function getTaskSteps(task) {
+  const steps = computeRangeSteps(task.ranges || []);
+  if (steps.length === 0) return ["（範囲なし）"];
+  return steps;
+}
 
-    const btnReset = mkBtn("リセット", "btnGhost", () => {
-      runnerStop(false);
-      p.spentSec = 0;
+function ensureProgress(taskId, stepsLen) {
+  const p = state.progressByTask[taskId] || { doneSteps: [], spentSec: 0 };
+  if (!Array.isArray(p.doneSteps)) p.doneSteps = [];
+  if (!Number.isFinite(p.spentSec)) p.spentSec = 0;
+
+  if (p.doneSteps.length < stepsLen) p.doneSteps = p.doneSteps.concat(Array(stepsLen - p.doneSteps.length).fill(false));
+  if (p.doneSteps.length > stepsLen) p.doneSteps = p.doneSteps.slice(0, stepsLen);
+
+  state.progressByTask[taskId] = p;
+  return p;
+}
+
+function computeTotalSec(task) {
+  const steps = getTaskSteps(task);
+  if (task.perRangeMin && Number.isFinite(task.perRangeMin) && task.perRangeMin > 0 && steps[0] !== "（範囲なし）") {
+    return steps.length * task.perRangeMin * 60;
+  }
+  return clamp(parseInt(task.durationMin || "30", 10), 1, 2000) * 60;
+}
+
+function countDone(doneSteps) {
+  return (doneSteps || []).reduce((a, b) => a + (b ? 1 : 0), 0);
+}
+
+function isTaskComplete(taskId) {
+  const found = findTaskById(taskId);
+  if (!found) return false;
+  const task = found.task;
+  const steps = getTaskSteps(task);
+  const p = ensureProgress(taskId, steps.length);
+  const totalSec = computeTotalSec(task);
+  const doneAll = (countDone(p.doneSteps) === steps.length);
+  const spentAll = ((p.spentSec || 0) >= totalSec);
+  return doneAll || spentAll;
+}
+
+function setRemainPill(task, remainSec) {
+  if (!task) { remainPill.hidden = true; return; }
+  remainSubj.textContent = task.subject;
+  remainTime.textContent = fmtMS(remainSec);
+  remainPill.hidden = false;
+}
+
+function runnerStart(taskId, auto = false) {
+  if (!taskId) return;
+  // 同じタスクを再実行する可能性に備えて、到着抑止フラグは開始時に解除
+  state.runner.arrivalShownTaskId = null;
+
+  state.runner.activeTaskId = taskId;
+  state.runner.isRunning = true;
+  state.runner.lastTick = Date.now();
+  if (!auto) state.runner.pausedByUser = false;
+  saveState();
+}
+
+function runnerStop(user = false) {
+  state.runner.isRunning = false;
+  state.runner.lastTick = 0;
+  if (user) state.runner.pausedByUser = true;
+  saveState();
+}
+
+// 到着を出す瞬間に active を解除してループ防止
+function openArrivalDialog(taskId) {
+  state.runner.arrivalShownTaskId = taskId;
+
+  state.runner.activeTaskId = null;
+  state.runner.isRunning = false;
+  state.runner.lastTick = 0;
+  state.runner.pausedByUser = false;
+  saveState();
+
+  const found = findTaskById(taskId);
+  const name = found ? `${found.task.subject}｜${found.task.taskType}` : "完了";
+
+  const body = document.createElement("div");
+  body.className = "grid1";
+  const big = document.createElement("div");
+  big.style.cssText = "font-size:36px;font-weight:1000;text-align:center;";
+  big.textContent = "到着";
+  const sub = document.createElement("div");
+  sub.style.cssText = "text-align:center;color:rgba(240,244,255,.72);font-weight:900;";
+  sub.textContent = name;
+  body.appendChild(big);
+  body.appendChild(sub);
+
+  openEditor("到着", body, [mkBtn("OK", "btnPrimary", closeEditor)]);
+}
+
+function openRunner(taskId) {
+  const found = findTaskById(taskId);
+  if (!found) return;
+
+  const t = found.task;
+  const steps = getTaskSteps(t);
+  const p = ensureProgress(taskId, steps.length);
+  const totalSec = computeTotalSec(t);
+
+  const body = document.createElement("div");
+  body.className = "runner";
+
+  const title = document.createElement("div");
+  title.style.cssText = "font-weight:1000;font-size:16px;";
+  title.textContent = `${t.subject}｜${t.taskType}`;
+
+  const timeBox = document.createElement("div");
+  timeBox.className = "runnerTime";
+
+  const timeBig = document.createElement("div");
+  timeBig.className = "runnerTimeBig";
+  const timeSmall = document.createElement("div");
+  timeSmall.className = "runnerTimeSmall";
+
+  timeBox.appendChild(timeBig);
+  timeBox.appendChild(timeSmall);
+
+  const prog = document.createElement("div");
+  prog.style.cssText = "text-align:right;color:rgba(240,244,255,.72);font-weight:1000;";
+
+  const btnAll = mkBtn("全部完了", "btnPrimary", () => {
+    for (let i = 0; i < p.doneSteps.length; i++) p.doneSteps[i] = true;
+    p.spentSec = Math.max(p.spentSec, totalSec);
+    state.progressByTask[taskId] = p;
+    saveState();
+    runnerStop(false);
+    renderRunner();
+    openArrivalDialog(taskId);
+  });
+
+  const stepsBox = document.createElement("div");
+  stepsBox.style.display = "grid";
+  stepsBox.style.gap = "8px";
+
+  const stepBtns = steps.map((label, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "stepBtn";
+    const left = document.createElement("span");
+    left.textContent = label;
+    const right = document.createElement("span");
+    right.className = "stepRight";
+    b.appendChild(left);
+    b.appendChild(right);
+
+    b.addEventListener("click", () => {
+      p.doneSteps[i] = !p.doneSteps[i];
       state.progressByTask[taskId] = p;
       saveState();
       renderRunner();
+
+      if (countDone(p.doneSteps) === steps.length) {
+        runnerStop(false);
+        openArrivalDialog(taskId);
+      }
     });
+    return b;
+  });
+  stepBtns.forEach(b => stepsBox.appendChild(b));
 
-    const btnClose = mkBtn("閉じる", "btnGhost", closeEditor);
+  const btnClose = mkBtn("閉じる", "btnGhost", closeEditor);
+  const foot = document.createElement("div");
+  foot.className = "row";
+  foot.appendChild(btnClose);
 
-    const foot = document.createElement("div");
-    foot.className = "row";
-    foot.appendChild(btnToggle);
-    foot.appendChild(btnReset);
-    foot.appendChild(btnClose);
+  body.appendChild(title);
+  body.appendChild(timeBox);
+  body.appendChild(prog);
+  body.appendChild(btnAll);
+  body.appendChild(stepsBox);
 
-    body.appendChild(title);
-    body.appendChild(timeBox);
-    body.appendChild(prog);
-    body.appendChild(btnAll);
-    body.appendChild(stepsBox);
+  // openEditor はボタン配列だが、nodeもappendできる作りなので foot を渡す
+  openEditor("実行", body, [foot]);
 
-    openEditor("実行", body, [foot]);
+  function renderRunner() {
+    const p2 = ensureProgress(taskId, steps.length);
+    const done = countDone(p2.doneSteps);
+    const remainSec = Math.max(0, totalSec - (p2.spentSec || 0));
 
-    function renderRunner() {
-      const p2 = ensureProgress(taskId, steps.length);
-      const done = countDone(p2.doneSteps);
-      const remainSec = Math.max(0, totalSec - (p2.spentSec || 0));
+    timeBig.textContent = fmtMS(remainSec);
+    timeSmall.textContent = `残り ${Math.ceil(remainSec / 60)}分`;
+    prog.textContent = `${done}/${steps.length}`;
 
-      timeBig.textContent = fmtMS(remainSec);
-      timeSmall.textContent = `残り ${Math.ceil(remainSec / 60)}分`;
-      prog.textContent = `${done}/${steps.length}`;
-
-      stepBtns.forEach((b, i) => {
-        const doneOne = !!p2.doneSteps[i];
-        b.classList.toggle("isDone", doneOne);
-        b.querySelector(".stepRight").textContent = doneOne ? "完了" : "";
-      });
-
-      btnToggle.textContent = (state.runner.activeTaskId === taskId && state.runner.isRunning) ? "一時停止" : "開始";
-    }
-
-    if (runnerUiTimer) { clearInterval(runnerUiTimer); runnerUiTimer = null; }
-    runnerUiTimer = setInterval(renderRunner, 250);
-    renderRunner();
+    stepBtns.forEach((b, i) => {
+      const doneOne = !!p2.doneSteps[i];
+      b.classList.toggle("isDone", doneOne);
+      b.querySelector(".stepRight").textContent = doneOne ? "完了" : "";
+    });
   }
+
+  if (runnerUiTimer) { clearInterval(runnerUiTimer); runnerUiTimer = null; }
+  runnerUiTimer = setInterval(renderRunner, 250);
+  renderRunner();
+                                }
 
   /* ===== Planning ===== */
   function subtractSegments(baseSegs, busySegs) {
@@ -1240,13 +1401,12 @@ window.addEventListener("DOMContentLoaded", () => {
     return Number.isFinite(base) ? clamp(base, 0, 1440) : 0;
   }
 
-  // ★変更点：入り切らなければ「下から」落としていく（=最後のタスクを予定に入れない）
   function buildPlanForDay(date) {
     const lifeBlocks = allLifeBlocksForDate(date);
     const occupied = lifeBlocks.map(b => ({ startMin: b.startMin, endMin: b.endMin }));
     const windowStart = computeStudyWindowStart(date);
 
-    const allTasks = (state.studyByDate[date] || []).map(t => ({ ...t })); // ★順番はリスト通り（ソートしない）
+    const allTasks = (state.studyByDate[date] || []).map(t => ({ ...t })); // リスト順優先
 
     const attempt = (tasks) => {
       let free = subtractSegments([{ start: windowStart, end: 1440 }], occupied);
@@ -1262,7 +1422,6 @@ window.addEventListener("DOMContentLoaded", () => {
           ? steps.map((label, i) => ({ stepIndex: i, stepLabel: label, dur: per }))
           : [{ stepIndex: null, stepLabel: null, dur: clamp(parseInt(t.durationMin || "30", 10), 1, 2000) }];
 
-        // ★部分的に入れてしまわないよう、タスク単位で仮確保
         let trial = free;
         const placed = [];
         let ok = true;
@@ -1307,7 +1466,7 @@ window.addEventListener("DOMContentLoaded", () => {
       return { blocks: merged, overflow };
     };
 
-    // 下から落とす：m件まで入れて overflow が消えるところまで
+    // 下から落とす
     let m = allTasks.length;
     let result = attempt(allTasks.slice(0, m));
     while (m > 0 && result.overflow.length > 0) {
@@ -1350,6 +1509,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const taskId = hit.taskId;
 
+    // ★完了済みタスクは自動で開始しない（到着ループ防止）
+    if (isTaskComplete(taskId)) return;
+
     if (state.runner.pausedByUser && state.runner.activeTaskId === taskId) return;
     if (state.runner.activeTaskId !== taskId) state.runner.pausedByUser = false;
     if (state.runner.activeTaskId === taskId && state.runner.isRunning) return;
@@ -1383,8 +1545,13 @@ window.addEventListener("DOMContentLoaded", () => {
         saveState();
 
         if (totalSec - p.spentSec <= 0) {
-          runnerStop(false);
-          openArrivalDialog(taskId);
+          // ★到着は同一タスクで1回だけ
+          if (state.runner.arrivalShownTaskId !== taskId) {
+            runnerStop(false);
+            openArrivalDialog(taskId);
+          } else {
+            runnerStop(false);
+          }
         }
       }
     }
@@ -1732,7 +1899,7 @@ window.addEventListener("DOMContentLoaded", () => {
     renderTimeline(true);
   });
 
-btnAutoBuild.addEventListener("click", () => {
+  btnAutoBuild.addEventListener("click", () => {
     const date = studyDate.value || fmtDate(new Date());
     buildPlanForDay(date);
     renderTimeline(true);
@@ -1745,7 +1912,6 @@ btnAutoBuild.addEventListener("click", () => {
     jumpToDay(fmtDate(new Date()), true);
   });
 
-  // ★変更点：勉強リストの「実行」ボタンを削除 + 順番変更ボタンを追加
   function renderStudyList() {
     const date = studyDate.value || fmtDate(new Date());
     const arr = state.studyByDate[date] || [];
