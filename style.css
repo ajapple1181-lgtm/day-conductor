@@ -27,7 +27,7 @@ button,input,select{ font:inherit; }
 :focus-visible{ outline:2px solid rgba(255,255,255,.25); outline-offset:2px; }
 
 .container{
-  width:min(760px,100%);
+  width:min(700px,100%);
   margin:0 auto;
   padding:10px 10px calc(14px + env(safe-area-inset-bottom));
 }
@@ -201,36 +201,53 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   border-radius:var(--r);
   background:rgba(255,255,255,.04);
 }
-.day{ padding:12px; border-bottom:1px solid rgba(255,255,255,.10); }
+
+/* ★ 日付境界をぴったり：padding/marginを消す */
+.day{
+  padding:0;
+  border-bottom:1px solid rgba(255,255,255,.10);
+}
 .dayHeader{
-  padding:6px 10px;
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:12px;
-  background:rgba(255,255,255,.06);
+  display:flex;
+  flex-direction:column;     /* ★上下 */
+  align-items:flex-start;
+  gap:2px;
+  padding:8px 10px;
+  border-bottom:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.05);
   font-weight:1000;
 }
-.dayGrid{ display:grid; grid-template-columns:64px 1fr; gap:10px; margin-top:10px; }
+.dayHeader .dayDate{ font-size:14px; }
+.dayHeader .dayDow{ font-size:12px; color:rgba(240,244,255,.70); font-weight:1000; }
+
+.dayGrid{
+  display:grid;
+  grid-template-columns:52px 1fr;  /* ★幅を狭める */
+  gap:8px;
+  padding:10px;
+  margin:0;
+}
 .axis{ position:relative; }
 .hourLabel{
   position:absolute;
   left:0;
-  width:64px;
+  width:52px;
   transform:translateY(-50%);
   font-size:12px;
   color:rgba(240,244,255,.55);
 }
 .canvas{
   position:relative;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,.12);
+  border-radius:0;                      /* ★境界ぴったり */
+  border:1px solid rgba(255,255,255,.10);
   background:rgba(0,0,0,.18);
   overflow:hidden;
 }
 
 .block{
   position:absolute;
-  left:8px;
-  right:8px;
+  left:4px;                             /* ★横幅を詰める */
+  right:4px;
   border-radius:14px;
   border:1px solid rgba(255,255,255,.12);
   border-left:10px solid var(--gray);
@@ -263,7 +280,6 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   color:rgba(240,244,255,.92);
 }
 
-/* tiny blocks: hide meta so text doesn't collapse */
 .block.isTiny{ padding:8px 10px; }
 .block.isTiny .blockMeta{ display:none; }
 .block.isTiny .blockTitle{ font-size:12px; }
@@ -288,7 +304,7 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   pointer-events:none;
 }
 
-/* editor (opaque) */
+/* editor */
 #editor[hidden]{ display:none !important; }
 #editor{
   position:fixed;
@@ -298,14 +314,14 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   align-items:flex-end;
   justify-content:center;
   padding:0;
-  background:var(--bg); /* ← 透明にしない */
+  background:var(--bg);
 }
 #editor .sheet{
   width:min(620px,100%);
   height:100vh;
   display:flex;
   flex-direction:column;
-  background:var(--panel); /* ← 透明にしない */
+  background:var(--panel);
   border-left:1px solid rgba(255,255,255,.14);
   border-right:1px solid rgba(255,255,255,.14);
 }
@@ -363,6 +379,6 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
 
 @media (max-width:420px){
   .timeline{ height: calc(100vh - 205px); }
-  .dayGrid{ grid-template-columns:58px 1fr; }
-  .hourLabel{ width:58px; }
-          }
+  .dayGrid{ grid-template-columns:50px 1fr; padding:8px; gap:8px; }
+  .hourLabel{ width:50px; }
+}
