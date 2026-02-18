@@ -4,12 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Daily schedule planner</title>
-  <link rel="stylesheet" href="./style.css?v=15">
+  <link rel="stylesheet" href="./style.css?v=14">
 </head>
 <body>
   <div class="container">
 
-    <!-- Top bar -->
     <div class="topbar">
       <div id="appTitle" class="appTitle">Daily schedule planner</div>
       <div class="spacer"></div>
@@ -23,7 +22,6 @@
       <button id="btnJumpNow" class="btn btnMini">NOW</button>
     </div>
 
-    <!-- Tabs -->
     <div class="tabs">
       <button class="tab is-active" data-tab="life">生活</button>
       <button class="tab" data-tab="study">勉強</button>
@@ -59,43 +57,39 @@
           </label>
         </div>
 
-        <!-- Commute -->
         <div id="routineCommuteWrap" class="grid2" hidden>
           <label class="field">
             <span class="label">朝の移動 開始</span>
-            <input id="routineCommuteAMStart" type="time" value="" />
+            <input id="routineCommuteAMStart" type="time" value="07:30" />
           </label>
           <label class="field">
             <span class="label">朝の移動（分）</span>
-            <input id="routineCommuteAMMin" type="number" min="0" step="1" value="0" />
+            <input id="routineCommuteAMMin" type="number" min="1" step="1" value="60" />
           </label>
         </div>
 
-        <!-- School time -->
         <div id="routineSchoolWrap" class="grid2" hidden>
           <label class="field">
             <span class="label">授業 開始</span>
-            <input id="routineSchoolStart" type="time" value="" />
+            <input id="routineSchoolStart" type="time" value="08:30" />
           </label>
           <label class="field">
             <span class="label">授業 終了</span>
-            <input id="routineSchoolEnd" type="time" value="" />
+            <input id="routineSchoolEnd" type="time" value="15:00" />
           </label>
         </div>
 
-        <!-- Club time -->
         <div id="routineClubEndWrap" class="grid2" hidden>
           <label class="field">
             <span class="label">部活 開始</span>
-            <input id="routineClubStart" type="time" value="" />
+            <input id="routineClubStart" type="time" value="16:10" />
           </label>
           <label class="field">
             <span class="label">部活 終了</span>
-            <input id="routineClubEnd" type="time" value="" />
+            <input id="routineClubEnd" type="time" value="18:30" />
           </label>
         </div>
 
-        <!-- Return commute -->
         <div id="routineReturnWrap" class="grid2" hidden>
           <label class="field">
             <span class="label">帰りの移動</span>
@@ -106,7 +100,7 @@
           </label>
 
           <div id="return60Wrap" class="field" hidden>
-            <span class="label">（60分は自動配置）</span>
+            <span class="label"> </span>
             <div class="note">帰り移動は、授業/部活の終了後に自動で入ります。</div>
           </div>
 
@@ -129,7 +123,7 @@
 
           <label id="routineBathMinWrap" class="field" hidden>
             <span class="label">風呂（分）</span>
-            <input id="routineBathMin" type="number" min="0" step="1" value="0" />
+            <input id="routineBathMin" type="number" min="1" step="1" value="60" />
           </label>
         </div>
 
@@ -144,7 +138,7 @@
 
           <label id="routinePrepMinWrap" class="field" hidden>
             <span class="label">準備（分）</span>
-            <input id="routinePrepMin" type="number" min="0" step="1" value="0" />
+            <input id="routinePrepMin" type="number" min="1" step="1" value="15" />
           </label>
         </div>
 
@@ -162,11 +156,11 @@
         <div id="routineSleepWrap" class="grid2" hidden>
           <label class="field">
             <span class="label">就寝時刻</span>
-            <input id="routineSleepStart" type="time" value="" />
+            <input id="routineSleepStart" type="time" value="23:30" />
           </label>
           <label class="field">
             <span class="label">起床時刻</span>
-            <input id="routineWake" type="time" value="" />
+            <input id="routineWake" type="time" value="06:30" />
           </label>
         </div>
 
@@ -183,7 +177,7 @@
           </label>
 
           <label id="lifeCustomWrap" class="field" hidden>
-            <span class="label">自由入力</span>
+            <span class="label">内容</span>
             <input id="lifeCustom" type="text" placeholder="例：病院" />
           </label>
         </div>
@@ -196,22 +190,22 @@
         <div id="lifeDurationBox" class="grid2">
           <label class="field">
             <span class="label">開始</span>
-            <input id="lifeStart" type="time" value="" />
+            <input id="lifeStart" type="time" value="17:00" />
           </label>
           <label class="field">
             <span class="label">分</span>
-            <input id="lifeMin" type="number" min="0" step="1" value="0" />
+            <input id="lifeMin" type="number" min="1" step="1" value="30" />
           </label>
         </div>
 
         <div id="lifeRangeBox" class="grid2" hidden>
           <label class="field">
             <span class="label">開始</span>
-            <input id="lifeFrom" type="time" value="" />
+            <input id="lifeFrom" type="time" value="17:00" />
           </label>
           <label class="field">
             <span class="label">終了</span>
-            <input id="lifeTo" type="time" value="" />
+            <input id="lifeTo" type="time" value="18:00" />
           </label>
         </div>
 
@@ -310,6 +304,7 @@
         <ul id="studyList" class="list"></ul>
       </div>
 
+      <!-- ★ 自動で組み立て：勉強リストの下 -->
       <div class="card section">
         <button id="btnAutoBuild" class="btn btnPrimary" style="width:100%;">自動で組み立て</button>
       </div>
@@ -322,7 +317,6 @@
 
   </div>
 
-  <!-- Editor / Runner -->
   <div id="editor" hidden>
     <div class="sheet">
       <div class="editorHeader">
@@ -334,6 +328,6 @@
     </div>
   </div>
 
-  <script src="./app.js?v=15"></script>
+  <script src="./app.js?v=14"></script>
 </body>
-              </html>
+          </html>
