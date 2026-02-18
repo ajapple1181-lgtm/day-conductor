@@ -104,7 +104,7 @@
       clubStart: "15:00",
       clubEnd: "18:30",
       returnMoveMode: "60",
-      second30Start: "20:00",
+      second30Start: "",
       bath: "あり",
       bathMin: 60,
       prep: "あり",
@@ -113,7 +113,7 @@
       sleepTime: "1:00",
       wakeTime: "7:05",
     },
-    thf: { // 2枚目：木金（授業あり・部活なし）
+    thf: { // 2枚目：火木（授業あり・部活なし）
       templateKey: "thf",
       school: "あり",
       club: "なし",
@@ -170,7 +170,7 @@
       prep: "あり",
       prepMin: 15,
       sleepUse: "あり",
-      sleepTime: "1:00",
+      sleepTime: "0:30",
       wakeTime: "7:05",
     },
   };
@@ -340,7 +340,7 @@
     const tplSel = mkSelect([
       { value: "", label: "テンプレを選択" },
       { value: "mwf", label: "月水金（授業＋部活）" },
-      { value: "thf", label: "木金（授業のみ）" },
+      { value: "thf", label: "火木（授業のみ）" },
       { value: "sat", label: "土曜（部活のみ）" },
       { value: "sun", label: "日曜（なし）" },
     ], L.templateKey || "");
