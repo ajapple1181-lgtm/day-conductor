@@ -144,6 +144,26 @@ window.addEventListener("DOMContentLoaded", () => {
     const dow = d.getDay(); // 0 Sun ... 6 Sat
     const isTueThu = (dow === 2 || dow === 4);
 
+function isBlankSavedRoutine(r) {
+  if (!r || typeof r !== "object") return true;
+
+  const timesEmpty =
+    !(r.commuteAMStart || r.schoolStart || r.schoolEnd || r.clubStart || r.clubEnd || r.sleepStart || r.wakeTime);
+
+  const minsZero =
+    Number(r.commuteAMMin || 0) === 0 &&
+    Number(r.bathMin || 0) === 0 &&
+    Number(r.prepMin || 0) === 0;
+
+  const allOff =
+    (r.schoolOn ?? "off") === "off" &&
+    (r.clubOn ?? "off") === "off" &&
+    (r.bathOn ?? "off") === "off" &&
+    (r.prepOn ?? "off") === "off" &&
+    (r.sleepOn ?? "off") === "off";
+
+  return timesEmpty && minsZero && allOff;
+}
     return {
       schoolOn: "off",
       clubOn: "off",
@@ -466,16 +486,19 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // ★ UI表示はテンプレ、保存があれば保存値
   function getRoutine(date) {
-    return peekRoutine(date) || routineTemplate(date);
+  const saved = peekRoutine(date);
+  if (!saved || isBlankSavedRoutine(saved)) return routineTemplate(date);
+  return saved;
   }
 
   function setRoutine(date, patch) {
-    // ★ 初回保存の土台もテンプレ（全部0/なしに引っ張られない）
-    const base = peekRoutine(date) || routineTemplate(date);
-    state.routineByDate[date] = { ...base, ...patch };
-    delete state.planCache[date];
-    delete state.planCache[addDays(date, 1)];
-    saveState();
+  const saved = peekRoutine(date);
+  const base = (!saved || isBlankSavedRoutine(saved)) ? routineTemplate(date) : saved;
+
+  state.routineByDate[date] = { ...base, ...patch };
+  delete state.planCache[date];
+  delete state.planCache[addDays(date, 1)];
+  saveState();
   }
 
   function updateRoutineVisibility() {
