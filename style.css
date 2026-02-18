@@ -27,7 +27,7 @@ button,input,select{ font:inherit; }
 :focus-visible{ outline:2px solid rgba(255,255,255,.25); outline-offset:2px; }
 
 .container{
-  width:min(700px,100%);
+  width:min(760px,100%);
   margin:0 auto;
   padding:10px 10px calc(14px + env(safe-area-inset-bottom));
 }
@@ -147,7 +147,6 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
 }
 .miniHead{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
 .miniTitle{ font-weight:1000; }
-
 .ranges{ display:grid; gap:8px; }
 .rangeRow{ display:grid; grid-template-columns:1fr 1fr 46px; gap:8px; align-items:center; }
 .rangeDel{
@@ -193,7 +192,7 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   padding:10px 12px 12px;
 }
 
-/* timeline */
+/* timeline (tight boundaries + narrower blocks) */
 .timeline{
   height: calc(100vh - 190px);
   overflow:auto;
@@ -202,52 +201,45 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   background:rgba(255,255,255,.04);
 }
 
-/* ★ 日付境界をぴったり：padding/marginを消す */
-.day{
-  padding:0;
-  border-bottom:1px solid rgba(255,255,255,.10);
-}
+/* ★境界をぴったり：余白/丸角を減らす */
+.day{ padding:0; border-bottom:1px solid rgba(255,255,255,.10); }
 .dayHeader{
-  display:flex;
-  flex-direction:column;     /* ★上下 */
-  align-items:flex-start;
-  gap:2px;
   padding:8px 10px;
   border-bottom:1px solid rgba(255,255,255,.10);
-  background:rgba(255,255,255,.05);
+  background:rgba(255,255,255,.06);
   font-weight:1000;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
 }
-.dayHeader .dayDate{ font-size:14px; }
-.dayHeader .dayDow{ font-size:12px; color:rgba(240,244,255,.70); font-weight:1000; }
+.dayDate{ font-size:14px; font-weight:1000; }
+.dayDow{ font-size:12px; color:rgba(240,244,255,.70); font-weight:1000; }
 
-.dayGrid{
-  display:grid;
-  grid-template-columns:52px 1fr;  /* ★幅を狭める */
-  gap:8px;
-  padding:10px;
-  margin:0;
-}
+.dayGrid{ display:grid; grid-template-columns:58px 1fr; gap:8px; margin:0; padding:10px; }
 .axis{ position:relative; }
 .hourLabel{
   position:absolute;
   left:0;
-  width:52px;
+  width:58px;
   transform:translateY(-50%);
   font-size:12px;
   color:rgba(240,244,255,.55);
 }
+
+/* 端の隙間を減らす */
 .canvas{
   position:relative;
-  border-radius:0;                      /* ★境界ぴったり */
-  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.12);
   background:rgba(0,0,0,.18);
   overflow:hidden;
 }
 
+/* ★タスク表示幅を少し締める（左右余白を減らす） */
 .block{
   position:absolute;
-  left:4px;                             /* ★横幅を詰める */
-  right:4px;
+  left:6px;
+  right:6px;
   border-radius:14px;
   border:1px solid rgba(255,255,255,.12);
   border-left:10px solid var(--gray);
@@ -280,6 +272,7 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   color:rgba(240,244,255,.92);
 }
 
+/* tiny blocks */
 .block.isTiny{ padding:8px 10px; }
 .block.isTiny .blockMeta{ display:none; }
 .block.isTiny .blockTitle{ font-size:12px; }
@@ -304,7 +297,7 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
   pointer-events:none;
 }
 
-/* editor */
+/* editor (opaque) */
 #editor[hidden]{ display:none !important; }
 #editor{
   position:fixed;
@@ -379,6 +372,6 @@ input[type="text"],input[type="number"],input[type="time"],input[type="date"],se
 
 @media (max-width:420px){
   .timeline{ height: calc(100vh - 205px); }
-  .dayGrid{ grid-template-columns:50px 1fr; padding:8px; gap:8px; }
-  .hourLabel{ width:50px; }
-}
+  .dayGrid{ grid-template-columns:54px 1fr; }
+  .hourLabel{ width:54px; }
+    }
