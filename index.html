@@ -3,331 +3,51 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f1a" />
   <title>Daily schedule planner</title>
-  <link rel="stylesheet" href="./style.css?v=14">
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <div class="container">
-
-    <div class="topbar">
-      <div id="appTitle" class="appTitle">Daily schedule planner</div>
-      <div class="spacer"></div>
-
-      <div id="studyRemain" class="remainPill" hidden>
-        <span id="remainSubj">—</span>
-        <span id="remainTime">0:00</span>
-      </div>
-
-      <div id="clockText" class="clock">--:--</div>
-      <button id="btnJumpNow" class="btn btnMini">NOW</button>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand">Daily schedule planner</div>
     </div>
 
-    <div class="tabs">
-      <button class="tab is-active" data-tab="life">生活</button>
-      <button class="tab" data-tab="study">勉強</button>
-      <button class="tab" data-tab="timeline">タイムライン</button>
+    <div class="topbar-right">
+      <div id="remainPill" class="remainPill" hidden>
+        <div class="remainTime" id="remainTime">--:--</div>
+        <div class="remainLabel" id="remainLabel">残り</div>
+      </div>
+
+      <button id="nowBtn" class="btn btnGhost">NOW</button>
+      <div class="nowClock" id="nowClock">--:--</div>
     </div>
+  </header>
 
-    <!-- Life -->
-    <section id="tabLife" class="panel is-active">
-      <div class="card section">
-        <div class="field">
-          <div class="label">日付</div>
-          <input id="lifeDate" type="date" />
-        </div>
+  <nav class="tabs">
+    <button class="tabBtn isActive" data-tab="life">生活</button>
+    <button class="tabBtn" data-tab="study">勉強</button>
+    <button class="tabBtn" data-tab="timeline">タイムライン</button>
+  </nav>
 
-        <div class="hr"></div>
-        <div class="sectionTitle">この日の生活設定</div>
+  <main class="main">
+    <section id="tab-life" class="tabPage"></section>
+    <section id="tab-study" class="tabPage" hidden></section>
+    <section id="tab-timeline" class="tabPage" hidden></section>
+  </main>
 
-        <div class="grid2">
-          <label class="field">
-            <span class="label">授業</span>
-            <select id="routineSchoolOn">
-              <option value="off">なし</option>
-              <option value="on">あり</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span class="label">部活</span>
-            <select id="routineClubOn">
-              <option value="off">なし</option>
-              <option value="on">あり</option>
-            </select>
-          </label>
-        </div>
-
-        <div id="routineCommuteWrap" class="grid2" hidden>
-          <label class="field">
-            <span class="label">朝の移動 開始</span>
-            <input id="routineCommuteAMStart" type="time" value="07:30" />
-          </label>
-          <label class="field">
-            <span class="label">朝の移動（分）</span>
-            <input id="routineCommuteAMMin" type="number" min="1" step="1" value="60" />
-          </label>
-        </div>
-
-        <div id="routineSchoolWrap" class="grid2" hidden>
-          <label class="field">
-            <span class="label">授業 開始</span>
-            <input id="routineSchoolStart" type="time" value="08:30" />
-          </label>
-          <label class="field">
-            <span class="label">授業 終了</span>
-            <input id="routineSchoolEnd" type="time" value="15:00" />
-          </label>
-        </div>
-
-        <div id="routineClubEndWrap" class="grid2" hidden>
-          <label class="field">
-            <span class="label">部活 開始</span>
-            <input id="routineClubStart" type="time" value="16:10" />
-          </label>
-          <label class="field">
-            <span class="label">部活 終了</span>
-            <input id="routineClubEnd" type="time" value="18:30" />
-          </label>
-        </div>
-
-        <div id="routineReturnWrap" class="grid2" hidden>
-          <label class="field">
-            <span class="label">帰りの移動</span>
-            <select id="routineReturnMode">
-              <option value="60">60分</option>
-              <option value="30x2">30分×2（途中で帰宅）</option>
-            </select>
-          </label>
-
-          <div id="return60Wrap" class="field" hidden>
-            <span class="label"> </span>
-            <div class="note">帰り移動は、授業/部活の終了後に自動で入ります。</div>
-          </div>
-
-          <div id="return30Wrap" class="field" hidden>
-            <span class="label">2回目の30分移動 開始</span>
-            <select id="routineReturn2Start"></select>
-          </div>
-        </div>
-
-        <div class="hr"></div>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">風呂</span>
-            <select id="routineBathOn">
-              <option value="off">なし</option>
-              <option value="on">あり</option>
-            </select>
-          </label>
-
-          <label id="routineBathMinWrap" class="field" hidden>
-            <span class="label">風呂（分）</span>
-            <input id="routineBathMin" type="number" min="1" step="1" value="60" />
-          </label>
-        </div>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">準備</span>
-            <select id="routinePrepOn">
-              <option value="off">なし</option>
-              <option value="on">あり</option>
-            </select>
-          </label>
-
-          <label id="routinePrepMinWrap" class="field" hidden>
-            <span class="label">準備（分）</span>
-            <input id="routinePrepMin" type="number" min="1" step="1" value="15" />
-          </label>
-        </div>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">就寝（この設定を使う）</span>
-            <select id="routineSleepOn">
-              <option value="off">なし</option>
-              <option value="on">あり</option>
-            </select>
-          </label>
-          <div></div>
-        </div>
-
-        <div id="routineSleepWrap" class="grid2" hidden>
-          <label class="field">
-            <span class="label">就寝時刻</span>
-            <input id="routineSleepStart" type="time" value="23:30" />
-          </label>
-          <label class="field">
-            <span class="label">起床時刻</span>
-            <input id="routineWake" type="time" value="06:30" />
-          </label>
-        </div>
-
-        <div id="routineHint" class="hint" hidden>設定が重なっています。時間を調整してください。</div>
+  <!-- Modal -->
+  <div id="modalRoot" class="modalRoot" hidden>
+    <div class="modalOverlay"></div>
+    <div class="modalPanel" role="dialog" aria-modal="true">
+      <div class="modalHeader">
+        <div id="modalTitle" class="modalTitle">---</div>
       </div>
-
-      <div class="card section">
-        <div class="sectionTitle">生活ブロックを追加</div>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">種類</span>
-            <select id="lifeType"></select>
-          </label>
-
-          <label id="lifeCustomWrap" class="field" hidden>
-            <span class="label">内容</span>
-            <input id="lifeCustom" type="text" placeholder="例：病院" />
-          </label>
-        </div>
-
-        <div class="radioRow">
-          <label class="radioPill"><input type="radio" name="lifeMode" value="duration" checked> 何分間</label>
-          <label class="radioPill"><input type="radio" name="lifeMode" value="range"> 時刻（開始→終了）</label>
-        </div>
-
-        <div id="lifeDurationBox" class="grid2">
-          <label class="field">
-            <span class="label">開始</span>
-            <input id="lifeStart" type="time" value="17:00" />
-          </label>
-          <label class="field">
-            <span class="label">分</span>
-            <input id="lifeMin" type="number" min="1" step="1" value="30" />
-          </label>
-        </div>
-
-        <div id="lifeRangeBox" class="grid2" hidden>
-          <label class="field">
-            <span class="label">開始</span>
-            <input id="lifeFrom" type="time" value="17:00" />
-          </label>
-          <label class="field">
-            <span class="label">終了</span>
-            <input id="lifeTo" type="time" value="18:00" />
-          </label>
-        </div>
-
-        <div class="row">
-          <button id="btnAddLife" class="btn btnPrimary">追加</button>
-          <div class="spacer"></div>
-          <button id="btnClearLifeDay" class="btn btnGhost">この日の生活を全消去</button>
-        </div>
-
-        <div id="lifeAddHint" class="hint" hidden>入力が不足しているか、重なっています。</div>
-      </div>
-
-      <div class="card section">
-        <div class="sectionTitle">この日の生活一覧</div>
-        <ul id="lifeList" class="list"></ul>
-      </div>
-    </section>
-
-    <!-- Study -->
-    <section id="tabStudy" class="panel">
-      <div class="card section">
-        <div class="field">
-          <div class="label">日付</div>
-          <input id="studyDate" type="date" />
-        </div>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">系</span>
-            <select id="studyCategory"></select>
-          </label>
-
-          <label class="field">
-            <span class="label">科目</span>
-            <select id="studySubject"></select>
-          </label>
-        </div>
-
-        <label id="studyOtherSubjectWrap" class="field" hidden>
-          <span class="label">科目名（その他）</span>
-          <input id="studyOtherSubject" type="text" placeholder="例：情報" />
-        </label>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">タスク内容</span>
-            <select id="studyTaskType"></select>
-          </label>
-
-          <label id="studyTaskFreeWrap" class="field" hidden>
-            <span class="label">タスク内容（自由入力）</span>
-            <input id="studyTaskFree" type="text" />
-          </label>
-        </div>
-
-        <div class="cardMini">
-          <div class="miniHead">
-            <div class="miniTitle">範囲（開始 / 終了）</div>
-            <div class="spacer"></div>
-            <button id="btnAddRange" class="btn btnMini btnGhost">範囲＋</button>
-          </div>
-          <div id="rangesList" class="ranges"></div>
-        </div>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">1範囲あたり（分）</span>
-            <input id="studyPerRangeMin" type="number" min="1" step="1" placeholder="任意" />
-          </label>
-          <label class="field">
-            <span class="label">見積（分）</span>
-            <input id="studyMin" type="number" min="1" step="1" value="30" />
-          </label>
-        </div>
-
-        <div class="grid2">
-          <label class="field">
-            <span class="label">終了希望</span>
-            <input id="studyDeadline" type="time" />
-          </label>
-          <div></div>
-        </div>
-
-        <div class="row">
-          <button id="btnAddStudy" class="btn btnPrimary">勉強を追加</button>
-          <div class="spacer"></div>
-          <button id="btnClearStudyDay" class="btn btnGhost">この日の勉強を全消去</button>
-        </div>
-
-        <div id="studyAddHint" class="hint" hidden>系 / 科目 / タスク内容 が必要です。</div>
-        <div id="overflowHint" class="hint" hidden>入りきらない勉強があります。</div>
-      </div>
-
-      <div class="card section">
-        <div class="sectionTitle">この日の勉強リスト</div>
-        <ul id="studyList" class="list"></ul>
-      </div>
-
-      <!-- ★ 自動で組み立て：勉強リストの下 -->
-      <div class="card section">
-        <button id="btnAutoBuild" class="btn btnPrimary" style="width:100%;">自動で組み立て</button>
-      </div>
-    </section>
-
-    <!-- Timeline -->
-    <section id="tabTimeline" class="panel">
-      <div id="timeline" class="timeline"></div>
-    </section>
-
-  </div>
-
-  <div id="editor" hidden>
-    <div class="sheet">
-      <div class="editorHeader">
-        <div id="editorTitle">—</div>
-        <button id="editorCancel" class="btn btnMini btnGhost">閉じる</button>
-      </div>
-      <div id="editorBody"></div>
-      <div id="editorFoot"></div>
+      <div id="modalBody" class="modalBody"></div>
+      <div id="modalFooter" class="modalFooter"></div>
     </div>
   </div>
 
-  <script src="./app.js?v=14"></script>
+  <script src="./app.js" defer></script>
 </body>
-          </html>
+</html>
