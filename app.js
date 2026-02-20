@@ -5,6 +5,8 @@
    - life templates (Mon/Wed/Fri, Tue/Thu, Sat, Sun)
    - return move: 60 / 30 / 30x2
    - remaining time = NOW -> current timeline block end
+   - time picker: input[type=time] (except 2nd 30min move)
+   - timeline: fixed time column + NOW dashed indicator
    ========================================================= */
 
 const STORAGE_KEY = "day_conductor_latest_v1";
@@ -72,14 +74,16 @@ function uid() {
 }
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
-/* ===== time options ===== */
-function makeTimeOptions(stepMin = 5) {
-  const out = [];
-  for (let m = 0; m < 24 * 60; m += stepMin) out.push(minToTime(m));
-  return out;
+/* ===== time input (clock UI) ===== */
+function mkTimeInput(value, onChange, stepSec = 300, disabled = false) {
+  const i = document.createElement("input");
+  i.type = "time";
+  i.step = String(stepSec); // 300=5min
+  i.value = value || "";
+  i.disabled = !!disabled;
+  i.addEventListener("change", () => onChange(i.value));
+  return i;
 }
-const TIMES_5 = makeTimeOptions(5);
-const TIMES_15 = makeTimeOptions(15);
 
 /* ===== subject config ===== */
 const GROUPS = [
@@ -112,13 +116,12 @@ const TASKTYPE_BY_SUBJECT = {
   "生物": ["—", "予習", "復習", "セミナー", "実験"],
   "地理": ["—", "教科書"],
   "公共": ["—", "教科書"],
-  "その他": ["—"], // 後で全種類を合体して入れる
+  "その他": ["—"],
 };
 
 function allTaskTypesUnion() {
   const set = new Set();
   Object.values(TASKTYPE_BY_SUBJECT).forEach(arr => arr.forEach(x => set.add(x)));
-  // "—"は先頭に欲しい
   const out = ["—"];
   [...set].filter(x => x !== "—").sort((a,b)=>a.localeCompare(b,"ja")).forEach(x=>out.push(x));
   return out;
@@ -231,7 +234,7 @@ function templateSat() {
     bath: "あり",
     bathMin: 60,
     prep: "なし",
-    prepMin: 15,
+    prepMin: "",
     sleepUse: "あり",
     bedTime: "01:00",
     wakeTime: "08:00",
@@ -267,7 +270,7 @@ function templateByWeekday(dateS) {
   if (wd === 0) return templateSun();
   if (wd === 6) return templateSat();
   if (wd === 2 || wd === 4) return templateTueThu();
-  return templateMonWedFri(); // Mon Wed Fri + fallback
+  return templateMonWedFri();
 }
 
 /* ===== state ===== */
@@ -277,9 +280,9 @@ function defaultState() {
     activeTab: "life",
     selectedDate: todayStr(),
 
-    lifeByDate: {},    // { [date]: LifeSettings }
-    studyByDate: {},   // { [date]: StudyTask[] }
-    progressByTask: {},// { [taskId]: { doneSteps:boolean[], spentSec:number } }
+    lifeByDate: {},
+    studyByDate: {},
+    progressByTask: {},
 
     runner: {
       activeTaskId: null,
@@ -374,8 +377,6 @@ function openModal(title, bodyNode, footerButtons) {
   modalBody.appendChild(bodyNode);
   (footerButtons || []).forEach(btn => modalFooter.appendChild(btn));
   modalRoot.hidden = false;
-
-  // スクロールしきれない対策（先頭に戻す）
   modalBody.scrollTop = 0;
 }
 function closeModal() {
@@ -386,6 +387,16 @@ function closeModal() {
 modalRoot.addEventListener("click", (e) => {
   if (e.target.classList.contains("modalOverlay")) closeModal();
 });
+
+/* ===== fixed header height -> css vars ===== */
+function updateHeaderOffsets() {
+  const topbar = document.querySelector(".topbar");
+  const tabs = document.querySelector(".tabs");
+  const topH = topbar ? topbar.offsetHeight : 56;
+  const tabsH = tabs ? tabs.offsetHeight : 56;
+  document.documentElement.style.setProperty("--topbarH", `${topH}px`);
+  document.documentElement.style.setProperty("--tabsH", `${tabsH}px`);
+}
 
 /* ===== ranges -> steps ===== */
 function parseRangeToken(s) {
@@ -404,7 +415,6 @@ function computeRangeSteps(ranges) {
     const pb = parseRangeToken(b);
 
     if (!pa || !pb || !Number.isFinite(pa.n) || !Number.isFinite(pb.n)) {
-      // 数字でない場合は1つにまとめる（壊れないための保険）
       out.push(a && b ? `${a}-${b}` : (a || b));
       continue;
     }
@@ -423,7 +433,6 @@ function computeRangeSteps(ranges) {
         else out.push(String(k));
       }
     } else {
-      // 逆入力対策：降順で出す（必要なら後で変える）
       for (let k = startN; k >= endN; k--) {
         if (k === startN) out.push(a);
         else if (k === endN) out.push(b);
@@ -500,7 +509,6 @@ function runnerStop() {
   saveState();
 }
 function openArrivalDialog(taskId) {
-  // ループ防止：到着表示フラグ + runner停止
   state.runner.arrivalShownTaskId = taskId;
   runnerStop();
 
@@ -586,15 +594,12 @@ function openRunner(taskId, segmentEndMs = null) {
     const p2 = ensureProgress(taskId, steps.length);
     const done = countDone(p2.doneSteps);
 
-    // 重要：残り時間は「NOW → このタスク(この区間)の終了」
-    // segmentEndMs が渡された時はそれを優先
     const now = Date.now();
     if (segmentEndMs && Number.isFinite(segmentEndMs)) {
       const remainSec = Math.max(0, Math.floor((segmentEndMs - now) / 1000));
       timeBig.textContent = fmtMS(remainSec);
       timeSmall.textContent = "（NOW→終了）";
     } else {
-      // fallback（開いたタスク全体の見積もり）
       const remainSec = Math.max(0, totalSec - (p2.spentSec || 0));
       timeBig.textContent = fmtMS(remainSec);
       timeSmall.textContent = "（見積もり）";
@@ -614,7 +619,7 @@ function openRunner(taskId, segmentEndMs = null) {
   renderRunner();
 }
 
-/* ===== schedule generation ===== */
+/* ===== schedule generation (ここは元のまま) ===== */
 function buildLifeBlocksForDate(dateS, life) {
   const blocks = [];
   const push = (kind, name, startMs, endMs, meta={}) => {
@@ -623,7 +628,6 @@ function buildLifeBlocksForDate(dateS, life) {
     blocks.push({ id: uid(), kind, name, startMs, endMs, meta });
   };
 
-  // custom blocks
   for (const cb of (life.customBlocks || [])) {
     if (cb.mode === "minutes") {
       const st = msOfDateTime(dateS, cb.start || "");
@@ -635,18 +639,15 @@ function buildLifeBlocksForDate(dateS, life) {
       const st = msOfDateTime(dateS, cb.start || "");
       let en = msOfDateTime(dateS, cb.end || "");
       if (Number.isFinite(st) && Number.isFinite(en)) {
-        // 日跨ぎ許可
         if (en <= st) en += 24 * 60 * 60 * 1000;
         push("life", cb.type === "-" ? (cb.content || "-") : cb.type, st, en, { source:"custom", cbId: cb.id });
       }
     }
   }
 
-  // routine blocks
   const hasLesson = (life.lesson === "あり");
   const hasClub = (life.club === "あり");
 
-  // morning move (if any of lesson/club OR user filled time)
   if (life.morningMoveStart) {
     const st = msOfDateTime(dateS, life.morningMoveStart);
     const mins = parseInt(life.morningMoveMin || "0", 10);
@@ -667,7 +668,6 @@ function buildLifeBlocksForDate(dateS, life) {
     push("life", "部活", st, en, { source:"routine" });
   }
 
-  // return move (after end of lesson/club whichever exists)
   let endBase = null;
   const lessonEnd = hasLesson && life.lessonEnd ? msOfDateTime(dateS, life.lessonEnd) : null;
   const clubEnd = hasClub && life.clubEnd ? msOfDateTime(dateS, life.clubEnd) : null;
@@ -680,14 +680,11 @@ function buildLifeBlocksForDate(dateS, life) {
     } else if (life.returnMoveType === "30") {
       push("life", "移動", endBase, endBase + 30 * 60 * 1000, { source:"routine", returnType:"30" });
     } else if (life.returnMoveType === "30x2") {
-      // first 30
       push("life", "移動", endBase, endBase + 30 * 60 * 1000, { source:"routine", returnType:"30x2-1" });
 
-      // second 30 + meal 30
       if (life.second30Start) {
         let st2 = msOfDateTime(dateS, life.second30Start);
         if (Number.isFinite(st2)) {
-          // 安全：第1移動後より前ならその日は無効（空扱い）
           if (st2 >= endBase + 30*60*1000) {
             push("life", "移動", st2, st2 + 30 * 60 * 1000, { source:"routine", returnType:"30x2-2" });
             push("life", "食事", st2 + 30*60*1000, st2 + 60*60*1000, { source:"routine", returnType:"mealAfterSecondMove" });
@@ -697,8 +694,6 @@ function buildLifeBlocksForDate(dateS, life) {
     }
   }
 
-  // bath + prep + sleep are placed later (sleep can be next day start)
-  // Here we only generate bath/prep as fixed blocks ending at sleep start (done in buildEndOfDayBlocks)
   return blocks;
 }
 
@@ -710,12 +705,10 @@ function computeSleepBlock(dateS, life) {
   const wakeMin = timeToMin(life.wakeTime);
   if (!Number.isFinite(bedMin) || !Number.isFinite(wakeMin)) return { err: "就寝/起床の時刻が不正です。" };
 
-  // bedTime < 18:00 の場合は「次の日の就寝」にする（要望通り）
   const bedOnNext = bedMin < 18*60;
   const bedDateS = addDaysStr(dateS, bedOnNext ? 1 : 0);
   let bedMs = msOfDateTime(bedDateS, life.bedTime);
 
-  // wakeは bed と同日 or 次の日（必ず bed より後）
   let wakeMs = msOfDateTime(bedDateS, life.wakeTime);
   if (wakeMs <= bedMs) wakeMs += 24*60*60*1000;
 
@@ -731,10 +724,7 @@ function buildEndOfDayBlocks(dateS, life, existingBlocks) {
   const sleepInfo = computeSleepBlock(dateS, life);
   if (sleepInfo && sleepInfo.err) return { blocks: [], err: sleepInfo.err };
 
-  // sleep block start date may be next day, so it isn't necessarily "dateS"
-  // but we still create it globally.
   if (sleepInfo && sleepInfo.bedMs && sleepInfo.wakeMs) {
-    // bath + prep before sleep (fixed order)
     let cursor = sleepInfo.bedMs;
 
     if (life.prep === "あり") {
@@ -751,12 +741,10 @@ function buildEndOfDayBlocks(dateS, life, existingBlocks) {
       cursor = st;
     }
 
-    // overlap check with existing blocks: bath/prep must not overlap anything
     const temp = existingBlocks.concat(blocks);
     const ov = findOverlap(temp);
     if (ov) return { blocks: [], err: "設定が重なっています。時間を調整してください。" };
 
-    // sleep block itself
     blocks.push({ id: uid(), kind:"life", name:"就寝", startMs: sleepInfo.bedMs, endMs: sleepInfo.wakeMs, meta:{ source:"routine", sleep:true }});
   }
 
@@ -772,8 +760,6 @@ function findOverlap(blocks) {
 }
 
 function buildStudySegmentsForDate(dateS, lifeBlocks, studyTasks) {
-  // free slots are within this date only (00:00 -> 24:00), but tasks can be split around lifeBlocks.
-  // rule: do NOT schedule study before lesson end if lesson exists.
   const dayStart = parseDateStr(dateS).getTime();
   const dayEnd = dayStart + 24*60*60*1000;
 
@@ -783,29 +769,23 @@ function buildStudySegmentsForDate(dateS, lifeBlocks, studyTasks) {
     const lessonEnd = Math.max(...lifeBlocks.filter(b=>b.name==="授業").map(b=>b.endMs));
     earliestStudy = lessonEnd;
   }
-  // if club exists, study starts after club end
   const hasClubBlock = lifeBlocks.some(b => b.name === "部活");
   if (hasClubBlock) {
     const clubEnd = Math.max(...lifeBlocks.filter(b=>b.name==="部活").map(b=>b.endMs));
     earliestStudy = Math.max(earliestStudy, clubEnd);
   }
 
-  // also after "帰り移動" first/60/30 we naturally block by life blocks.
-
-  // build occupied intervals (life blocks within day)
   const occ = lifeBlocks
     .filter(b => b.startMs < dayEnd && b.endMs > dayStart)
     .map(b => ({ start: Math.max(b.startMs, dayStart), end: Math.min(b.endMs, dayEnd) }))
     .sort((a,b)=>a.start-b.start);
 
-  // merge occupied
   const merged = [];
   for (const it of occ) {
     if (!merged.length || merged[merged.length-1].end < it.start) merged.push({ ...it });
     else merged[merged.length-1].end = Math.max(merged[merged.length-1].end, it.end);
   }
 
-  // free slots
   const free = [];
   let cur = dayStart;
   for (const it of merged) {
@@ -814,14 +794,12 @@ function buildStudySegmentsForDate(dateS, lifeBlocks, studyTasks) {
   }
   if (cur < dayEnd) free.push({ start: cur, end: dayEnd });
 
-  // cut by earliestStudy
   const free2 = free
     .map(s => ({ start: Math.max(s.start, earliestStudy), end: s.end }))
     .filter(s => s.end - s.start >= 5*60*1000);
 
   const segments = [];
 
-  // helper: check if task fits in total free minutes from current slot pointer to end
   function totalFreeMinutesFrom(iSlot, offsetMs) {
     let ms = 0;
     for (let j=iSlot;j<free2.length;j++){
@@ -836,16 +814,13 @@ function buildStudySegmentsForDate(dateS, lifeBlocks, studyTasks) {
   let pointer = free2.length ? free2[0].start : null;
 
   for (const task of (studyTasks || [])) {
-    const steps = getTaskSteps(task);
     const totalMin = Math.ceil(computeTotalSec(task) / 60);
 
     if (pointer == null) break;
 
-    // if not enough space for this task, stop (do not schedule partial)
     const availMin = totalFreeMinutesFrom(slotIdx, pointer);
     if (availMin < totalMin) break;
 
-    // schedule this task across free slots
     let remainMin = totalMin;
     while (remainMin > 0 && slotIdx < free2.length) {
       const s = free2[slotIdx];
@@ -879,7 +854,6 @@ function buildStudySegmentsForDate(dateS, lifeBlocks, studyTasks) {
 }
 
 function mergeContiguous(segments) {
-  // merge adjacent segments if same kind+name+taskId and touching
   const a = [...segments].sort((x,y)=>x.startMs-y.startMs);
   const out = [];
   for (const b of a) {
@@ -891,16 +865,14 @@ function mergeContiguous(segments) {
       (last.meta?.taskId || null) === (b.meta?.taskId || null) &&
       last.endMs === b.startMs;
 
-    if (same) {
-      last.endMs = b.endMs;
-    } else out.push({ ...b });
+    if (same) last.endMs = b.endMs;
+    else out.push({ ...b });
   }
   return out;
 }
 
 /* ===== timeline window ===== */
 function timelineDatesWindow(centerDateS) {
-  // show 8 days: yesterday -> +6
   const start = addDaysStr(centerDateS, -1);
   const days = [];
   for (let i=0;i<8;i++) days.push(addDaysStr(start, i));
@@ -919,13 +891,10 @@ function buildAllBlocksForWindow() {
       const baseLife = buildLifeBlocksForDate(dateS, life);
       const endPart = buildEndOfDayBlocks(dateS, life, baseLife);
       if (endPart.err) {
-        // store error for UI
         life.__err = endPart.err;
       } else {
         life.__err = "";
         const lifeBlocks = baseLife.concat(endPart.blocks);
-
-        // study segments
         const studySegs = buildStudySegmentsForDate(dateS, lifeBlocks, study);
 
         blocks = blocks.concat(lifeBlocks);
@@ -934,28 +903,24 @@ function buildAllBlocksForWindow() {
     }
   }
 
-  // merge contiguous segments for better visuals
   blocks = mergeContiguous(blocks);
-
-  // sort
   blocks.sort((a,b)=>a.startMs-b.startMs);
   return blocks;
 }
 
 /* ===== remaining time pill ===== */
-function setRemainPill(remainSec, labelText = "残り") {
+function setRemainPill(remainSec, labelText = "") {
   if (!Number.isFinite(remainSec) || remainSec < 0) {
     remainPill.hidden = true;
     return;
   }
   remainTime.textContent = fmtMS(remainSec);
-  remainLabel.textContent = labelText;
+  remainLabel.textContent = labelText || "";
   remainPill.hidden = false;
 }
 
 /* ===== auto runner tick ===== */
 function currentBlockAt(blocks, nowMs) {
-  // find last block whose start<=now<end
   for (let i = blocks.length - 1; i >= 0; i--) {
     const b = blocks[i];
     if (b.startMs <= nowMs && nowMs < b.endMs) return b;
@@ -967,25 +932,25 @@ function tickRunner(blocks) {
   const now = Date.now();
   const block = currentBlockAt(blocks, now);
 
-  // remaining time is always NOW -> current block end
   if (block) {
     const remainSec = Math.max(0, Math.floor((block.endMs - now) / 1000));
-    setRemainPill(remainSec, "残り");
+    const label = (block.kind === "study")
+      ? (block.meta?.subject || "勉強")
+      : (block.name || "生活");
+    setRemainPill(remainSec, label);
   } else {
     remainPill.hidden = true;
   }
 
-  // study auto run
   if (block && block.kind === "study") {
     const taskId = block.meta?.taskId;
     if (taskId && !isTaskComplete(taskId)) {
       if (state.runner.arrivalShownTaskId === taskId) {
-        // already arrived shown; do nothing
+        // noop
       } else {
         if (!state.runner.isRunning || state.runner.activeTaskId !== taskId) {
           runnerStart(taskId);
         } else {
-          // accumulate time
           const last = state.runner.lastTick || now;
           const dtSec = Math.max(0, Math.floor((now - last) / 1000));
           if (dtSec > 0) {
@@ -998,7 +963,6 @@ function tickRunner(blocks) {
               state.runner.lastTick = now;
               saveState();
 
-              // arrived by time?
               const totalSec = computeTotalSec(found.task);
               if (p.spentSec >= totalSec) openArrivalDialog(taskId);
             }
@@ -1006,11 +970,9 @@ function tickRunner(blocks) {
         }
       }
     } else {
-      // complete -> stop
       if (state.runner.isRunning) runnerStop();
     }
   } else {
-    // not in study -> stop
     if (state.runner.isRunning) runnerStop();
   }
 }
@@ -1064,7 +1026,6 @@ function renderLife() {
     else if (name === "日曜") t = templateSun();
     else t = templateByWeekday(state.selectedDate);
 
-    // preserve custom blocks? -> keep none (テンプレは写真通り)
     state.lifeByDate[state.selectedDate] = deepClone(t);
     saveState();
     render();
@@ -1083,7 +1044,6 @@ function renderLife() {
     const empty = el("div", "card");
     empty.appendChild(el("div", "note", "この日の生活設定がまだありません。テンプレ適用か、下で設定してください。"));
     tabLife.appendChild(empty);
-    // create empty settings on first interaction: also show settings UI with empty model
     state.lifeByDate[state.selectedDate] = emptyLifeSettings();
     saveState();
   }
@@ -1100,41 +1060,38 @@ function renderLife() {
   g.appendChild(wrapField("授業", lessonSel));
   g.appendChild(wrapField("部活", clubSel));
 
-  // show morning move if lesson or club is "あり" OR user filled it
   const showMorning = (L.lesson==="あり" || L.club==="あり" || !!L.morningMoveStart);
 
   if (showMorning) {
-    const stSel = mkSelect(TIMES_5, L.morningMoveStart || "", (v)=>{ L.morningMoveStart=v; saveState(); render(); }, true);
+    const stIn = mkTimeInput(L.morningMoveStart || "", (v)=>{ L.morningMoveStart=v; saveState(); render(); }, 300);
     const minIn = document.createElement("input");
     minIn.type = "number";
     minIn.value = String(L.morningMoveMin ?? 60);
     minIn.addEventListener("change", ()=>{ L.morningMoveMin = clamp(parseInt(minIn.value||"60",10), 1, 240); saveState(); render(); });
-    g.appendChild(wrapField("朝の移動 開始", stSel));
+    g.appendChild(wrapField("朝の移動 開始", stIn));
     g.appendChild(wrapField("朝の移動（分）", minIn));
   }
 
   if (L.lesson === "あり") {
-    const st = mkSelect(TIMES_5, L.lessonStart || "", (v)=>{ L.lessonStart=v; saveState(); render(); }, true);
-    const en = mkSelect(TIMES_5, L.lessonEnd || "", (v)=>{ L.lessonEnd=v; saveState(); render(); }, true);
+    const st = mkTimeInput(L.lessonStart || "", (v)=>{ L.lessonStart=v; saveState(); render(); }, 300);
+    const en = mkTimeInput(L.lessonEnd || "", (v)=>{ L.lessonEnd=v; saveState(); render(); }, 300);
     g.appendChild(wrapField("授業 開始", st));
     g.appendChild(wrapField("授業 終了", en));
   } else {
-    // keep layout balanced
-    g.appendChild(wrapField("授業 開始", mkSelect(TIMES_5, "", ()=>{}, true)));
-    g.appendChild(wrapField("授業 終了", mkSelect(TIMES_5, "", ()=>{}, true)));
+    g.appendChild(wrapField("授業 開始", mkTimeInput("", ()=>{}, 300, true)));
+    g.appendChild(wrapField("授業 終了", mkTimeInput("", ()=>{}, 300, true)));
   }
 
   if (L.club === "あり") {
-    const st = mkSelect(TIMES_5, L.clubStart || "", (v)=>{ L.clubStart=v; saveState(); render(); }, true);
-    const en = mkSelect(TIMES_5, L.clubEnd || "", (v)=>{ L.clubEnd=v; saveState(); render(); }, true);
+    const st = mkTimeInput(L.clubStart || "", (v)=>{ L.clubStart=v; saveState(); render(); }, 300);
+    const en = mkTimeInput(L.clubEnd || "", (v)=>{ L.clubEnd=v; saveState(); render(); }, 300);
     g.appendChild(wrapField("部活 開始", st));
     g.appendChild(wrapField("部活 終了", en));
   } else {
-    g.appendChild(wrapField("部活 開始", mkSelect(TIMES_5, "", ()=>{}, true)));
-    g.appendChild(wrapField("部活 終了", mkSelect(TIMES_5, "", ()=>{}, true)));
+    g.appendChild(wrapField("部活 開始", mkTimeInput("", ()=>{}, 300, true)));
+    g.appendChild(wrapField("部活 終了", mkTimeInput("", ()=>{}, 300, true)));
   }
 
-  // return move options: 60 / 30 / 30x2
   const returnSel = document.createElement("select");
   [
     { v:"60", t:"60分" },
@@ -1153,21 +1110,27 @@ function renderLife() {
   });
   g.appendChild(wrapField("帰りの移動", returnSel));
 
-  // second start only if 30x2
   if (L.returnMoveType === "30x2") {
-    // 17:00 - 21:30, 00/15/30
+    // 00/15/30 のみ（45なし）
     const list = [];
-    for (let m = 17*60; m <= 21*60 + 30; m += 15) list.push(minToTime(m));
+    for (let m = 17*60; m <= 21*60 + 30; m += 15) {
+      if ((m % 60) === 45) continue;
+      list.push(minToTime(m));
+    }
     const st2 = mkSelect(list, L.second30Start || "", (v)=>{ L.second30Start=v; saveState(); render(); }, true);
     g.appendChild(wrapField("2回目の30分移動 開始", st2));
   } else {
-    g.appendChild(wrapField("2回目の30分移動 開始", mkSelect([""], "", ()=>{}, true)));
+    const dummy = document.createElement("select");
+    dummy.disabled = true;
+    const o = document.createElement("option");
+    o.value=""; o.textContent="—";
+    dummy.appendChild(o);
+    g.appendChild(wrapField("2回目の30分移動 開始", dummy));
   }
 
   settingsCard.appendChild(g);
   settingsCard.appendChild(el("div", "hr"));
 
-  // bath / prep / sleep
   const g2 = el("div", "grid2");
 
   const bathSel = mkSelect(["あり","なし"], L.bath || "なし", (v)=>{ L.bath=v; saveState(); render(); });
@@ -1189,18 +1152,16 @@ function renderLife() {
   const sleepSel = mkSelect(["あり","なし"], L.sleepUse || "なし", (v)=>{ L.sleepUse=v; saveState(); render(); });
   g2.appendChild(wrapField("就寝（この設定を使う）", sleepSel));
 
-  const bedSel = mkSelect(TIMES_5, L.bedTime || "", (v)=>{ L.bedTime=v; saveState(); render(); }, true);
-  const wakeSel = mkSelect(TIMES_5, L.wakeTime || "", (v)=>{ L.wakeTime=v; saveState(); render(); }, true);
-  g2.appendChild(wrapField("就寝時刻", bedSel));
-  g2.appendChild(wrapField("起床時刻", wakeSel));
+  const bedIn = mkTimeInput(L.bedTime || "", (v)=>{ L.bedTime=v; saveState(); render(); }, 300);
+  const wakeIn = mkTimeInput(L.wakeTime || "", (v)=>{ L.wakeTime=v; saveState(); render(); }, 300);
+  g2.appendChild(wrapField("就寝時刻", bedIn));
+  g2.appendChild(wrapField("起床時刻", wakeIn));
 
   settingsCard.appendChild(g2);
 
-  // validation message
   const err = (L.__err || "");
   if (err) settingsCard.appendChild(el("div", "warn", err));
 
-  // delete day settings
   const row2 = el("div", "row");
   row2.style.justifyContent="space-between";
   row2.appendChild(el("div", "note", "変更は自動で反映されます。"));
@@ -1216,7 +1177,7 @@ function renderLife() {
 
   tabLife.appendChild(settingsCard);
 
-  // add custom life block
+  /* ===== custom life block add ===== */
   const addCard = el("div","card");
   addCard.appendChild(el("div","", "生活ブロックを追加"));
 
@@ -1228,7 +1189,6 @@ function renderLife() {
 
   addGrid.appendChild(wrapField("種類", typeSel));
   addGrid.appendChild(wrapField("内容", contentIn));
-
   addCard.appendChild(addGrid);
 
   const modeRow = el("div","row");
@@ -1239,21 +1199,13 @@ function renderLife() {
   modeRow.appendChild(l1); modeRow.appendChild(l2);
   addCard.appendChild(modeRow);
 
-  const timeGrid = el("div","grid2");
+  const startIn = mkTimeInput("", ()=>{}, 300);
+  const endIn = mkTimeInput("", ()=>{}, 300);
 
-  const startSel = mkSelect(TIMES_5, "", ()=>{}, true);
   const minIn = document.createElement("input");
   minIn.type="number";
   minIn.value="";
 
-  const endSel = mkSelect(TIMES_5, "", ()=>{}, true);
-
-  timeGrid.appendChild(wrapField("開始", startSel));
-  timeGrid.appendChild(wrapField("分", minIn));
-  timeGrid.appendChild(wrapField("開始", startSel.cloneNode(true)));
-  timeGrid.appendChild(wrapField("終了", endSel));
-
-  // we will swap UI by rerendering small area
   const timeArea = el("div","grid1");
   addCard.appendChild(timeArea);
 
@@ -1261,20 +1213,19 @@ function renderLife() {
     timeArea.innerHTML="";
     if (r1.checked) {
       const g = el("div","grid2");
-      g.appendChild(wrapField("開始", startSel));
+      g.appendChild(wrapField("開始", startIn));
       g.appendChild(wrapField("分", minIn));
       timeArea.appendChild(g);
     } else {
       const g = el("div","grid2");
-      g.appendChild(wrapField("開始", startSel));
-      g.appendChild(wrapField("終了", endSel));
+      g.appendChild(wrapField("開始", startIn));
+      g.appendChild(wrapField("終了", endIn));
       timeArea.appendChild(g);
     }
   }
   r1.addEventListener("change", renderTimeArea);
   r2.addEventListener("change", renderTimeArea);
 
-  // auto minutes based on type (editable)
   typeSel.addEventListener("change", () => {
     const t = typeSel.value;
     if (t !== "-" && LIFE_AUTO_MIN[t] != null) {
@@ -1293,7 +1244,7 @@ function renderLife() {
     const content = (contentIn.value || "").trim();
 
     if (r1.checked) {
-      if (!startSel.value) return;
+      if (!startIn.value) return;
       const mins = parseInt(minIn.value || "0", 10);
       if (!Number.isFinite(mins) || mins <= 0) return;
 
@@ -1302,18 +1253,18 @@ function renderLife() {
         type,
         content,
         mode: "minutes",
-        start: startSel.value,
+        start: startIn.value,
         minutes: mins,
       });
     } else {
-      if (!startSel.value || !endSel.value) return;
+      if (!startIn.value || !endIn.value) return;
       lifeNow.customBlocks.push({
         id: uid(),
         type,
         content,
         mode: "clock",
-        start: startSel.value,
-        end: endSel.value,
+        start: startIn.value,
+        end: endIn.value,
       });
     }
 
@@ -1339,7 +1290,7 @@ function renderLife() {
 
   tabLife.appendChild(addCard);
 
-  // life list + delete, tap shows settings confirm only
+  /* ===== life list ===== */
   const listCard = el("div","card");
   listCard.appendChild(el("div","", "この日の生活リスト"));
 
@@ -1362,7 +1313,6 @@ function renderLife() {
       row.appendChild(left);
 
       const del = mkBtn("✕", "btnSmall btnDanger smallX", () => {
-        // delete only custom blocks; routine blocks are controlled by settings
         const lifeNow = state.lifeByDate[state.selectedDate];
         if (!lifeNow) return;
         const cbId = b.meta?.cbId;
@@ -1377,7 +1327,6 @@ function renderLife() {
 
       row.addEventListener("click", (e) => {
         if (e.target === del) return;
-        // confirm modal (not editable)
         const bd = el("div","grid1");
         bd.appendChild(el("div","", b.name));
         bd.appendChild(el("div","note", fmtRange(b.startMs, b.endMs)));
@@ -1393,7 +1342,7 @@ function renderLife() {
   tabLife.appendChild(listCard);
 }
 
-/* ===== render: study ===== */
+/* ===== render: study（元のまま：ボタン右端はCSSで保証） ===== */
 function subjectColorFromGroup(groupKey) {
   const g = GROUPS.find(x=>x.key===groupKey);
   return g ? g.color : "gray";
@@ -1419,7 +1368,6 @@ function renderStudy() {
   const list = state.studyByDate[state.selectedDate] || [];
   if (!state.studyByDate[state.selectedDate]) state.studyByDate[state.selectedDate] = [];
 
-  // Add form
   const addCard = el("div","card");
   addCard.appendChild(el("div","", "勉強タスクを追加"));
 
@@ -1468,13 +1416,8 @@ function renderStudy() {
     otherTaskTypeIn.hidden = true;
   }
 
-  groupSel.addEventListener("change", ()=>{
-    setSubjectOptions(groupSel.value);
-  });
-  subjectSel.addEventListener("change", ()=>{
-    setTaskTypeOptions(subjectSel.value);
-  });
-
+  groupSel.addEventListener("change", ()=>{ setSubjectOptions(groupSel.value); });
+  subjectSel.addEventListener("change", ()=>{ setTaskTypeOptions(subjectSel.value); });
   setSubjectOptions("none");
 
   const durIn = document.createElement("input");
@@ -1485,7 +1428,6 @@ function renderStudy() {
   perRangeIn.type="number";
   perRangeIn.placeholder="（任意）";
 
-  // ranges (start above end)
   let ranges = [{ start:"", end:"" }];
 
   function renderRanges(container) {
@@ -1577,7 +1519,6 @@ function renderStudy() {
     state.studyByDate[state.selectedDate].push(task);
     saveState();
 
-    // reset minimal
     durIn.value="30";
     perRangeIn.value="";
     ranges = [{start:"", end:""}];
@@ -1586,10 +1527,8 @@ function renderStudy() {
 
   addCard.appendChild(el("div","hr"));
   addCard.appendChild(btnAdd);
-
   tabStudy.appendChild(addCard);
 
-  // list
   const listCard = el("div","card");
   listCard.appendChild(el("div","", "この日の勉強リスト"));
 
@@ -1605,9 +1544,7 @@ function renderStudy() {
       const top = el("div","blockTop");
       top.appendChild(el("div","blockName", `${t.subject}｜${t.taskType}`));
 
-      const btnRow = el("div","row");
-      btnRow.style.gap="6px";
-
+      const btnRow = el("div","btnRow");
       const up = mkBtn("↑", "btnSmall", ()=>{
         if (idx<=0) return;
         const arr = state.studyByDate[state.selectedDate];
@@ -1620,7 +1557,6 @@ function renderStudy() {
         [arr[idx+1], arr[idx]] = [arr[idx], arr[idx+1]];
         saveState(); render();
       });
-
       const del = mkBtn("✕", "btnSmall btnDanger smallX", ()=>{
         state.studyByDate[state.selectedDate] = state.studyByDate[state.selectedDate].filter(x=>x.id!==t.id);
         saveState(); render();
@@ -1640,7 +1576,6 @@ function renderStudy() {
 
       item.appendChild(el("div","blockTag", hasRealSteps ? `範囲 ${steps.length} / 見積 ${estMin}分` : `見積 ${estMin}分`));
 
-      // tap to edit (study only)
       item.addEventListener("click", (e)=>{
         if (e.target.closest("button")) return;
         openStudyEdit(t.id);
@@ -1652,10 +1587,8 @@ function renderStudy() {
     listCard.appendChild(box);
   }
 
-  // auto assembly note (placed under list)
   listCard.appendChild(el("div","hr"));
   listCard.appendChild(el("div","note","自動で組み立てはタイムラインに自動反映されます。入り切らない場合は末尾のタスクは予定に入りません。"));
-
   tabStudy.appendChild(listCard);
 }
 
@@ -1678,7 +1611,6 @@ function openStudyEdit(taskId) {
   body.appendChild(wrapField("時間（分）", dur));
   body.appendChild(wrapField("1範囲あたり（分）", prm));
 
-  // ranges editor
   const rbox = el("div","grid1");
   const localRanges = deepClone(t.ranges || []);
   if (!localRanges.length) localRanges.push({start:"", end:""});
@@ -1749,10 +1681,11 @@ function renderTimeline() {
   tabTimeline.innerHTML = "";
 
   const blocks = buildAllBlocksForWindow();
-
   const wrap = el("div","timelineWrap");
 
+  const nowMs = Date.now();
   const dates = timelineDatesWindow(state.selectedDate);
+
   dates.forEach(dateS=>{
     const row = el("div","dayRow");
     const head = el("div","dayHead");
@@ -1762,22 +1695,64 @@ function renderTimeline() {
 
     const list = el("div","blocks");
 
-    const dayBlocks = blocks.filter(b => dateStr(new Date(b.startMs)) === dateS);
+    const dayStart = parseDateStr(dateS).getTime();
+    const dayEnd = dayStart + 24*60*60*1000;
+    const nowInThisDay = (dayStart <= nowMs && nowMs < dayEnd);
+
+    // day overlap + display clip
+    const dayBlocks = blocks
+      .filter(b => b.startMs < dayEnd && b.endMs > dayStart)
+      .map(b => ({
+        ...b,
+        _dispStart: Math.max(b.startMs, dayStart),
+        _dispEnd: Math.min(b.endMs, dayEnd),
+      }))
+      .sort((a,b)=>a._dispStart - b._dispStart);
 
     if (!dayBlocks.length) {
-      list.appendChild(el("div","note","（予定なし）"));
+      if (nowInThisDay) {
+        const r = el("div","tRow");
+        const t = el("div","tTime", fmtHMM(nowMs));
+        const div = el("div","nowDivider");
+        div.id = "nowAnchor";
+        r.appendChild(t);
+        r.appendChild(div);
+        list.appendChild(r);
+      } else {
+        list.appendChild(el("div","note","（予定なし）"));
+      }
     } else {
-      dayBlocks.forEach(b=>{
+      let insertedGapNow = false;
+      let insideNow = false;
+
+      const maybeInsertNowDivider = () => {
+        if (insertedGapNow || insideNow || !nowInThisDay) return;
+        const r = el("div","tRow");
+        const t = el("div","tTime", fmtHMM(nowMs));
+        const div = el("div","nowDivider");
+        div.id = "nowAnchor";
+        r.appendChild(t);
+        r.appendChild(div);
+        list.appendChild(r);
+        insertedGapNow = true;
+      };
+
+      for (const b of dayBlocks) {
+        if (!insideNow && nowInThisDay && nowMs < b._dispStart) {
+          maybeInsertNowDivider();
+        }
+
+        const trow = el("div","tRow");
+        const timeCol = el("div","tTime", fmtRange(b._dispStart, b._dispEnd));
+
         const card = el("div","block");
         const bar = el("div", `bar ${b.kind==="study" ? (b.meta?.subjectColor || "gray") : "gray"}`);
         card.appendChild(bar);
 
         const top = el("div","blockTop");
         top.appendChild(el("div","blockName", b.name));
-        top.appendChild(el("div","blockTime", fmtRange(b.startMs, b.endMs)));
         card.appendChild(top);
 
-        // tag
         if (b.kind === "study") {
           const taskId = b.meta?.taskId;
           const done = taskId ? isTaskComplete(taskId) : false;
@@ -1786,23 +1761,35 @@ function renderTimeline() {
           card.appendChild(el("div","blockTag", "生活"));
         }
 
+        // NOW inside this displayed segment -> dashed line in card
+        if (nowInThisDay && b._dispStart <= nowMs && nowMs < b._dispEnd) {
+          insideNow = true;
+          const frac = (nowMs - b._dispStart) / Math.max(1, (b._dispEnd - b._dispStart));
+          card.classList.add("isNow");
+          card.style.setProperty("--nowP", String(Math.max(0, Math.min(1, frac))));
+          card.id = "nowAnchor";
+        }
+
+        trow.appendChild(timeCol);
+        trow.appendChild(card);
+        list.appendChild(trow);
+
         card.addEventListener("click", ()=>{
           if (b.kind === "study") {
-            openRunner(b.meta.taskId, b.endMs);
+            openRunner(b.meta.taskId, b._dispEnd);
           } else {
-            // settings confirm modal
             const bd = el("div","grid1");
             bd.appendChild(el("div","", b.name));
-            bd.appendChild(el("div","note", fmtRange(b.startMs, b.endMs)));
+            bd.appendChild(el("div","note", fmtRange(b._dispStart, b._dispEnd)));
             openModal("確認", bd, [mkBtn("OK","btnPrimary",closeModal)]);
           }
         });
+      }
 
-        // anchor for NOW scroll
-        if (isNowInside(b)) card.id = "nowAnchor";
-
-        list.appendChild(card);
-      });
+      // now is after last block (gap)
+      if (nowInThisDay && !insideNow && !insertedGapNow) {
+        maybeInsertNowDivider();
+      }
     }
 
     row.appendChild(head);
@@ -1811,20 +1798,12 @@ function renderTimeline() {
   });
 
   tabTimeline.appendChild(wrap);
-
-  // initial: scroll to NOW
   scrollToNow();
 }
 
-function isNowInside(block) {
-  const now = Date.now();
-  return block.startMs <= now && now < block.endMs;
-}
-
 function scrollToNow() {
-  // try anchor, else do nothing
   const a = document.getElementById("nowAnchor");
-  if (a) a.scrollIntoView({ block:"center", behavior:"instant" });
+  if (a) a.scrollIntoView({ block:"center", behavior:"auto" });
 }
 
 nowBtn.addEventListener("click", ()=>{
@@ -1834,13 +1813,14 @@ nowBtn.addEventListener("click", ()=>{
 
 /* ===== main render ===== */
 function render() {
-  // clock
   const n = new Date();
   nowClock.textContent = `${n.getHours()}:${pad2(n.getMinutes())}`;
 
   if (state.activeTab === "life") renderLife();
   if (state.activeTab === "study") renderStudy();
   if (state.activeTab === "timeline") renderTimeline();
+
+  updateHeaderOffsets();
 }
 
 /* ===== loop ===== */
@@ -1848,22 +1828,13 @@ function loop() {
   const blocks = buildAllBlocksForWindow();
   tickRunner(blocks);
 
-  // keep clock updated
   const n = new Date();
   nowClock.textContent = `${n.getHours()}:${pad2(n.getMinutes())}`;
-
-  // if in timeline tab, keep NOW anchor updated occasionally
-  if (state.activeTab === "timeline") {
-    // no heavy rerender; only the remain pill & runner tick matters
-  }
 }
 
 /* ===== init ===== */
 setTab(state.activeTab || "life");
 render();
-
-// run loop
 setInterval(loop, 1000);
-
-// If initial tab is timeline, keep it at now
+window.addEventListener("resize", updateHeaderOffsets);
 if (state.activeTab === "timeline") setTimeout(scrollToNow, 0);
