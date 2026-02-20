@@ -1733,49 +1733,6 @@ function renderTimeline() {
         div.id = "nowAnchor";
         r.appendChild(t);
         r.appendChild(div);
-        list.appendChild(r);
-        insertedGapNow = true;
-      };
-
-      for (const b of dayBlocks) {
-        if (!insideNow && nowInThisDay && nowMs < b._dispStart) {
-          maybeInsertNowDivider();
-        }
-
-        const trow = el("div","tRow");
-        const timeCol = el("div","tTime", fmtRange(b._dispStart, b._dispEnd));
-
-        const card = el("div","block");
-        const bar = el("div", `bar ${b.kind==="study" ? (b.meta?.subjectColor || "gray") : "gray"}`);
-        card.appendChild(bar);
-
-        const top = el("div","blockTop");
-        top.appendChild(el("div","blockName", b.name));
-        card.appendChild(top);
-
-        if (b.kind === "study") {
-          const taskId = b.meta?.taskId;
-          const done = taskId ? isTaskComplete(taskId) : false;
-          card.appendChild(el("div","blockTag", done ? "完了" : "勉強"));
-        } else {
-          card.appendChild(el("div","blockTag", "生活"));
-        }
-
-        // NOW inside this displayed segment -> dashed line in card
-        if (nowInThisDay && b._dispStart <= nowMs && nowMs < b._dispEnd) {
-          insideNow = true;
-          const frac = (nowMs - b._dispStart) / Math.max(1, (b._dispEnd - b._dispStart));
-          card.classList.add("isNow");
-          card.style.setProperty("--nowP", String(Math.max(0, Math.min(1, frac))));
-          card.id = "nowAnchor";
-        }
-
-        trow.appendChild(timeCol);
-        trow.appendChild(card);
-        list.appendChild(trow);
-
-        card.addEventListener("click", ()=>{
-          if (b.kind === "study") {
 
 /* ===== render: timeline ===== */
 function renderTimeline() {
