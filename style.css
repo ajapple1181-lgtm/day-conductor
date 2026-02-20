@@ -2,6 +2,7 @@
   --bg:#0b0f1a;
   --panel:#11182a;
   --panel2:#0f1526;
+  --panel3:rgba(255,255,255,.03);
   --text:#eef3ff;
   --muted:rgba(238,243,255,.72);
   --line:rgba(255,255,255,.08);
@@ -15,6 +16,10 @@
   --lime:#99ff66;
   --yellow:#ffd24d;
   --gray:#b9c1d8;
+
+  /* JSで実測して上書きされる */
+  --topbarH:56px;
+  --tabsH:56px;
 }
 
 *{box-sizing:border-box;}
@@ -26,13 +31,17 @@ body{
   font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;
 }
 
+/* ===== fixed header ===== */
 .topbar{
-  position:sticky;
+  position:fixed;
   top:0;
-  z-index:10;
+  left:0;
+  right:0;
+  z-index:20;
   background:linear-gradient(180deg, rgba(17,24,42,.98), rgba(17,24,42,.86));
   border-bottom:1px solid var(--line);
   padding:10px 12px;
+  padding-top:calc(10px + env(safe-area-inset-top));
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -71,14 +80,21 @@ body{
 .remainLabel{
   font-size:11px;
   color:var(--muted);
-  font-weight:900;
+  font-weight:1000;
   margin-top:2px;
+  max-width:140px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 
+/* tabs fixed */
 .tabs{
-  position:sticky;
-  top:56px;
-  z-index:9;
+  position:fixed;
+  top:var(--topbarH);
+  left:0;
+  right:0;
+  z-index:19;
   background:rgba(11,15,26,.92);
   border-bottom:1px solid var(--line);
   padding:10px 12px;
@@ -102,6 +118,7 @@ body{
 
 .main{
   padding:12px;
+  padding-top:calc(var(--topbarH) + var(--tabsH) + 12px);
   max-width:980px;
   margin:0 auto;
 }
@@ -132,7 +149,9 @@ body{
   font-size:12px;
   margin-bottom:6px;
 }
-.input, select, input[type="text"], input[type="number"], input[type="date"]{
+
+/* input styles (time追加) */
+.input, select, input[type="text"], input[type="number"], input[type="date"], input[type="time"]{
   width:100%;
   background:var(--panel2);
   color:var(--text);
@@ -144,6 +163,9 @@ body{
   outline:none;
 }
 input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
+input:disabled, select:disabled{
+  opacity:.55;
+}
 
 .btn{
   border:1px solid var(--line);
@@ -162,9 +184,7 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
   background:linear-gradient(180deg, rgba(255,93,93,.25), rgba(255,93,93,.14));
   border-color:rgba(255,93,93,.55);
 }
-.btnGhost{
-  background:transparent;
-}
+.btnGhost{ background:transparent; }
 .btnSmall{
   padding:10px 12px;
   border-radius:14px;
@@ -191,7 +211,7 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
   margin-top:6px;
 }
 
-/* timeline */
+/* ===== timeline ===== */
 .timelineWrap{
   background:var(--panel);
   border:1px solid var(--line);
@@ -233,21 +253,81 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
   gap:10px;
 }
 
+/* 時刻カラム固定 */
+.tRow{
+  display:grid;
+  grid-template-columns:84px 1fr;
+  gap:10px;
+  align-items:stretch;
+}
+.tTime{
+  font-weight:1000;
+  font-variant-numeric:tabular-nums;
+  color:rgba(238,243,255,.66);
+  font-size:12px;
+  padding-top:10px;
+  white-space:nowrap;
+}
+
+/* task card (背景との差を強める) */
 .block{
-  border:1px solid var(--line);
+  border:1px solid rgba(255,255,255,.10);
   border-radius:16px;
-  background:rgba(15,21,38,.92);
+  background:var(--panel3);
   padding:10px 12px;
-  min-height:56px; /* 15分でも文字が潰れない */
+  min-height:56px;
   display:flex;
   flex-direction:column;
   justify-content:center;
   gap:6px;
 }
-.blockTop{
+
+/* NOW dashed line inside current block */
+.block.isNow{
+  position:relative;
+}
+.block.isNow::after{
+  content:"";
+  position:absolute;
+  left:12px;
+  right:12px;
+  top:calc(var(--nowP, 0.5) * 100%);
+  border-top:2px dashed rgba(238,243,255,.55);
+  pointer-events:none;
+}
+
+/* now divider (gap用) */
+.nowDivider{
+  border:1px dashed rgba(238,243,255,.35);
+  border-radius:16px;
+  background:rgba(255,255,255,.02);
+  height:44px;
   display:flex;
+  align-items:center;
+  padding:0 12px;
+  position:relative;
+}
+.nowDivider::before{
+  content:"NOW";
+  font-weight:1000;
+  font-size:12px;
+  color:rgba(238,243,255,.78);
+  margin-right:10px;
+}
+.nowDivider::after{
+  content:"";
+  position:absolute;
+  left:56px;
+  right:12px;
+  top:50%;
+  transform:translateY(-50%);
+  border-top:2px dashed rgba(238,243,255,.35);
+}
+
+.blockTop{
+  display:grid;
+  grid-template-columns:1fr auto;
   align-items:baseline;
-  justify-content:space-between;
   gap:10px;
 }
 .blockTime{
@@ -256,6 +336,7 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
   color:rgba(238,243,255,.78);
   font-size:12px;
   white-space:nowrap;
+  justify-self:end;
 }
 .blockName{
   font-weight:1000;
@@ -266,6 +347,13 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
   font-weight:1000;
   font-size:12px;
   color:var(--muted);
+}
+
+/* button row (↑↓✕ 右端) */
+.btnRow{
+  display:flex;
+  gap:6px;
+  justify-content:flex-end;
 }
 
 /* subject color bar */
@@ -315,7 +403,7 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
 }
 .modalBody{
   padding:12px;
-  overflow:auto; /* 上が出ない/スクロールできない問題の対策 */
+  overflow:auto;
 }
 .modalFooter{
   padding:12px;
@@ -338,8 +426,8 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
 }
 .stepBtn{
   width:100%;
-  border:1px solid var(--line);
-  background:rgba(15,21,38,.92);
+  border:1px solid rgba(255,255,255,.10);
+  background:var(--panel3);
   color:var(--text);
   border-radius:14px;
   padding:12px;
@@ -359,4 +447,4 @@ input::placeholder{ color:rgba(238,243,255,.35); font-weight:900; }
   width:44px;
   text-align:center;
   padding:10px 0;
-  }
+    }
