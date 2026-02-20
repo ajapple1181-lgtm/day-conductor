@@ -1750,20 +1750,46 @@ function renderTimeline() {
         card.appendChild(bar);
 
         const top = el("div","blockTop");
-         
+        top.appendChild(el("div","blockName", b.name));
+        card.appendChild(top);
+
+        if (b.kind === "study") {
+          const taskId = b.meta?.taskId;
+          const done = taskId ? isTaskComplete(taskId) : false;
+          card.appendChild(el("div","blockTag", done ? "完了" : "勉強"));
+        } else {
+          card.appendChild(el("div","blockTag", "生活"));
+        }
+
+        // NOW inside this displayed segment -> dashed line in card
+        if (nowInThisDay && b._dispStart <= nowMs && nowMs < b._dispEnd) {
+          insideNow = true;
+          const frac = (nowMs - b._dispStart) / Math.max(1, (b._dispEnd - b._dispStart));
+          card.classList.add("isNow");
+          card.style.setProperty("--nowP", String(Math.max(0, Math.min(1, frac))));
+          card.id = "nowAnchor";
+        }
+
+        trow.appendChild(timeCol);
+        trow.appendChild(card);
+        list.appendChild(trow);
+
+        card.addEventListener("click", ()=>{
+          if (b.kind === "study") {
+
+/* ===== render: timeline ===== */
 function renderTimeline() {
   tabTimeline.innerHTML = "";
 
   const blocksAll = buildAllBlocksForWindow();
 
-  const dates = timelineDatesWindow(state.selectedDate); // 8日
+  const dates = timelineDatesWindow(state.selectedDate);
   const startDateS = dates[0];
   const endDateS = addDaysStr(dates[dates.length - 1], 1);
 
   const startMs = parseDateStr(startDateS).getTime();
   const endMs = parseDateStr(endDateS).getTime();
 
-  // 画像っぽい縦密度（必要なら 1.2〜1.8 で調整）
   const PPM = 1.4; // px per minute
   const totalMin = Math.floor((endMs - startMs) / 60000);
   const totalH = totalMin * PPM;
@@ -1795,11 +1821,11 @@ function renderTimeline() {
 
   const px = (min) => `${min * PPM}px`;
 
-  // 1時間線（＋30分薄線）を全体に敷く
+  /* ===== 時間線 ===== */
   for (let m = 0; m <= totalMin; m += 60) {
     const line = el("div", "tlHourLine");
     line.style.top = px(m);
-    if (m % 1440 === 0) line.classList.add("tlDayLine"); // 0:00は強め
+    if (m % 1440 === 0) line.classList.add("tlDayLine");
     canvasInner.appendChild(line);
   }
   for (let m = 30; m <= totalMin; m += 60) {
@@ -1808,7 +1834,7 @@ function renderTimeline() {
     canvasInner.appendChild(line);
   }
 
-  // 時刻ラベル（1時間ごと）
+  /* ===== 時刻ラベル ===== */
   for (let m = 0; m <= totalMin; m += 60) {
     const hh = Math.floor((m % 1440) / 60);
     const lab = el("div", "tlHourLabel", `${hh}:00`);
@@ -1816,18 +1842,20 @@ function renderTimeline() {
     axisInner.appendChild(lab);
   }
 
-  // 日付ラベル（各日の0:00ラインに表示）
+  /* ===== 日付 ===== */
   dates.forEach((dateS, i) => {
     const yMin = i * 1440;
     const d = parseDateStr(dateS);
+
     const badge = el("div", "tlDateBadge");
     badge.style.top = px(yMin);
     badge.appendChild(el("div", "tlDateMD", fmtMD(d)));
     badge.appendChild(el("div", "tlDateWD", weekdayJa(d)));
+
     datesInner.appendChild(badge);
   });
 
-  // NOW 破線
+  /* ===== NOWライン ===== */
   const nowMs = Date.now();
   if (startMs <= nowMs && nowMs < endMs) {
     const nowMin = (nowMs - startMs) / 60000;
@@ -1837,7 +1865,7 @@ function renderTimeline() {
     canvasInner.appendChild(nowLine);
   }
 
-  // ブロック描画（ウィンドウ内だけ、日跨ぎは連続で表示）
+  /* ===== ブロック ===== */
   const blocks = blocksAll
     .filter(b => b.startMs < endMs && b.endMs > startMs)
     .map(b => ({
@@ -1852,7 +1880,7 @@ function renderTimeline() {
     const enMin = (b._dispEnd - startMs) / 60000;
 
     const top = stMin * PPM;
-    const h = Math.max(18, (enMin - stMin) * PPM); // 極小は最低限だけ確保
+    const h = Math.max(18, (enMin - stMin) * PPM);
 
     const card = el("div", "tlBlock");
     card.style.top = `${top}px`;
@@ -1889,19 +1917,8 @@ function renderTimeline() {
     canvasInner.appendChild(card);
   });
 
-  // 初期はNOWへ
   scrollToNow();
-     }
-
-function scrollToNow() {
-  const a = document.getElementById("nowAnchor");
-  if (a) a.scrollIntoView({ block:"center", behavior:"auto" });
 }
-
-nowBtn.addEventListener("click", ()=>{
-  setTab("timeline");
-  setTimeout(scrollToNow, 0);
-});
 
 /* ===== main render ===== */
 function render() {
