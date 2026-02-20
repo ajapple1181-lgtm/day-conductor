@@ -150,7 +150,7 @@ function emptyLifeSettings() {
     club: "なし",
 
     morningMoveStart: "",
-    morningMoveMin: 60,
+    morningMoveMin: "",
 
     lessonStart: "",
     lessonEnd: "",
@@ -158,14 +158,14 @@ function emptyLifeSettings() {
     clubStart: "",
     clubEnd: "",
 
-    returnMoveType: "60", // "60" | "30" | "30x2"
+    returnMoveType: "", // "60" | "30" | "30x2"
     second30Start: "",
 
     bath: "なし",
-    bathMin: 60,
+    bathMin: "",
 
     prep: "なし",
-    prepMin: 15,
+    prepMin: "",
 
     sleepUse: "なし",
     bedTime: "",
@@ -234,7 +234,7 @@ function templateSat() {
     bath: "あり",
     bathMin: 60,
     prep: "なし",
-    prepMin: 15,
+    prepMin: "",
     sleepUse: "あり",
     bedTime: "01:00",
     wakeTime: "08:00",
