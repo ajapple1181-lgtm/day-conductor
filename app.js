@@ -1750,56 +1750,148 @@ function renderTimeline() {
         card.appendChild(bar);
 
         const top = el("div","blockTop");
-        top.appendChild(el("div","blockName", b.name));
-        card.appendChild(top);
+         
+function renderTimeline() {
+  tabTimeline.innerHTML = "";
 
-        if (b.kind === "study") {
-          const taskId = b.meta?.taskId;
-          const done = taskId ? isTaskComplete(taskId) : false;
-          card.appendChild(el("div","blockTag", done ? "完了" : "勉強"));
-        } else {
-          card.appendChild(el("div","blockTag", "生活"));
-        }
+  const blocksAll = buildAllBlocksForWindow();
 
-        // NOW inside this displayed segment -> dashed line in card
-        if (nowInThisDay && b._dispStart <= nowMs && nowMs < b._dispEnd) {
-          insideNow = true;
-          const frac = (nowMs - b._dispStart) / Math.max(1, (b._dispEnd - b._dispStart));
-          card.classList.add("isNow");
-          card.style.setProperty("--nowP", String(Math.max(0, Math.min(1, frac))));
-          card.id = "nowAnchor";
-        }
+  const dates = timelineDatesWindow(state.selectedDate); // 8日
+  const startDateS = dates[0];
+  const endDateS = addDaysStr(dates[dates.length - 1], 1);
 
-        trow.appendChild(timeCol);
-        trow.appendChild(card);
-        list.appendChild(trow);
+  const startMs = parseDateStr(startDateS).getTime();
+  const endMs = parseDateStr(endDateS).getTime();
 
-        card.addEventListener("click", ()=>{
-          if (b.kind === "study") {
-            openRunner(b.meta.taskId, b._dispEnd);
-          } else {
-            const bd = el("div","grid1");
-            bd.appendChild(el("div","", b.name));
-            bd.appendChild(el("div","note", fmtRange(b._dispStart, b._dispEnd)));
-            openModal("確認", bd, [mkBtn("OK","btnPrimary",closeModal)]);
-          }
-        });
-      }
+  // 画像っぽい縦密度（必要なら 1.2〜1.8 で調整）
+  const PPM = 1.4; // px per minute
+  const totalMin = Math.floor((endMs - startMs) / 60000);
+  const totalH = totalMin * PPM;
 
-      // now is after last block (gap)
-      if (nowInThisDay && !insideNow && !insertedGapNow) {
-        maybeInsertNowDivider();
-      }
-    }
+  const wrap = el("div", "timelineWrap");
+  const grid = el("div", "tlGrid");
 
-    row.appendChild(head);
-    row.appendChild(list);
-    wrap.appendChild(row);
+  const colDates = el("div", "tlDates");
+  const colAxis = el("div", "tlAxis");
+  const colCanvas = el("div", "tlCanvas");
+
+  const datesInner = el("div", "tlInner");
+  const axisInner = el("div", "tlInner");
+  const canvasInner = el("div", "tlCanvasInner");
+
+  datesInner.style.height = `${totalH}px`;
+  axisInner.style.height = `${totalH}px`;
+  canvasInner.style.height = `${totalH}px`;
+
+  colDates.appendChild(datesInner);
+  colAxis.appendChild(axisInner);
+  colCanvas.appendChild(canvasInner);
+
+  grid.appendChild(colDates);
+  grid.appendChild(colAxis);
+  grid.appendChild(colCanvas);
+  wrap.appendChild(grid);
+  tabTimeline.appendChild(wrap);
+
+  const px = (min) => `${min * PPM}px`;
+
+  // 1時間線（＋30分薄線）を全体に敷く
+  for (let m = 0; m <= totalMin; m += 60) {
+    const line = el("div", "tlHourLine");
+    line.style.top = px(m);
+    if (m % 1440 === 0) line.classList.add("tlDayLine"); // 0:00は強め
+    canvasInner.appendChild(line);
+  }
+  for (let m = 30; m <= totalMin; m += 60) {
+    const line = el("div", "tlHalfLine");
+    line.style.top = px(m);
+    canvasInner.appendChild(line);
+  }
+
+  // 時刻ラベル（1時間ごと）
+  for (let m = 0; m <= totalMin; m += 60) {
+    const hh = Math.floor((m % 1440) / 60);
+    const lab = el("div", "tlHourLabel", `${hh}:00`);
+    lab.style.top = px(m);
+    axisInner.appendChild(lab);
+  }
+
+  // 日付ラベル（各日の0:00ラインに表示）
+  dates.forEach((dateS, i) => {
+    const yMin = i * 1440;
+    const d = parseDateStr(dateS);
+    const badge = el("div", "tlDateBadge");
+    badge.style.top = px(yMin);
+    badge.appendChild(el("div", "tlDateMD", fmtMD(d)));
+    badge.appendChild(el("div", "tlDateWD", weekdayJa(d)));
+    datesInner.appendChild(badge);
   });
 
-  tabTimeline.appendChild(wrap);
+  // NOW 破線
+  const nowMs = Date.now();
+  if (startMs <= nowMs && nowMs < endMs) {
+    const nowMin = (nowMs - startMs) / 60000;
+    const nowLine = el("div", "tlNowLine");
+    nowLine.style.top = px(nowMin);
+    nowLine.id = "nowAnchor";
+    canvasInner.appendChild(nowLine);
+  }
+
+  // ブロック描画（ウィンドウ内だけ、日跨ぎは連続で表示）
+  const blocks = blocksAll
+    .filter(b => b.startMs < endMs && b.endMs > startMs)
+    .map(b => ({
+      ...b,
+      _dispStart: Math.max(b.startMs, startMs),
+      _dispEnd: Math.min(b.endMs, endMs),
+    }))
+    .sort((a, b) => a._dispStart - b._dispStart);
+
+  blocks.forEach(b => {
+    const stMin = (b._dispStart - startMs) / 60000;
+    const enMin = (b._dispEnd - startMs) / 60000;
+
+    const top = stMin * PPM;
+    const h = Math.max(18, (enMin - stMin) * PPM); // 極小は最低限だけ確保
+
+    const card = el("div", "tlBlock");
+    card.style.top = `${top}px`;
+    card.style.height = `${h}px`;
+    if (h < 58) card.classList.add("isTiny");
+
+    const bar = el("div", `bar ${b.kind === "study" ? (b.meta?.subjectColor || "gray") : "gray"}`);
+    card.appendChild(bar);
+
+    const topRow = el("div", "blockTop");
+    topRow.appendChild(el("div", "blockName", b.name));
+    topRow.appendChild(el("div", "blockTime", fmtRange(b._dispStart, b._dispEnd)));
+    card.appendChild(topRow);
+
+    if (b.kind === "study") {
+      const taskId = b.meta?.taskId;
+      const done = taskId ? isTaskComplete(taskId) : false;
+      card.appendChild(el("div", "blockTag", done ? "完了" : "勉強"));
+    } else {
+      card.appendChild(el("div", "blockTag", "生活"));
+    }
+
+    card.addEventListener("click", () => {
+      if (b.kind === "study") {
+        openRunner(b.meta.taskId, b._dispEnd);
+      } else {
+        const bd = el("div", "grid1");
+        bd.appendChild(el("div", "", b.name));
+        bd.appendChild(el("div", "note", fmtRange(b._dispStart, b._dispEnd)));
+        openModal("確認", bd, [mkBtn("OK", "btnPrimary", closeModal)]);
+      }
+    });
+
+    canvasInner.appendChild(card);
+  });
+
+  // 初期はNOWへ
   scrollToNow();
-}
+     }
 
 function scrollToNow() {
   const a = document.getElementById("nowAnchor");
