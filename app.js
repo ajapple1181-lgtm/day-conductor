@@ -234,7 +234,7 @@ function templateSat() {
     bath: "あり",
     bathMin: 60,
     prep: "なし",
-    prepMin: "",
+    prepMin: 15,
     sleepUse: "あり",
     bedTime: "01:00",
     wakeTime: "08:00",
@@ -1581,148 +1581,235 @@ function renderStudy() {
         openStudyEdit(t.id);
       });
 
+      box.appendChild(item);
+    });
+
+    listCard.appendChild(box);
+  }
+
+  listCard.appendChild(el("div","hr"));
+  listCard.appendChild(el("div","note","自動で組み立てはタイムラインに自動反映されます。入り切らない場合は末尾のタスクは予定に入りません。"));
+  tabStudy.appendChild(listCard);
+}
+
+function openStudyEdit(taskId) {
+  const found = findTaskById(taskId);
+  if (!found) return;
+  const t = found.task;
+
+  const body = el("div","grid1");
+
+  const dur = document.createElement("input");
+  dur.type="number";
+  dur.value=String(t.durationMin || 30);
+
+  const prm = document.createElement("input");
+  prm.type="number";
+  prm.placeholder="（任意）";
+  prm.value = t.perRangeMin || "";
+
+  body.appendChild(wrapField("時間（分）", dur));
+  body.appendChild(wrapField("1範囲あたり（分）", prm));
+
+  const rbox = el("div","grid1");
+  const localRanges = deepClone(t.ranges || []);
+  if (!localRanges.length) localRanges.push({start:"", end:""});
+
+  function renderLocalRanges() {
+    rbox.innerHTML="";
+    localRanges.forEach((r, idx)=>{
+      const box = el("div","card");
+      box.style.background="rgba(15,21,38,.6)";
+      box.style.borderColor="rgba(255,255,255,.08)";
+      box.style.padding="10px";
+
+      const st = document.createElement("input");
+      st.type="text"; st.value=r.start||"";
+      const en = document.createElement("input");
+      en.type="text"; en.value=r.end||"";
+
+      st.addEventListener("input", ()=>{ r.start=st.value; });
+      en.addEventListener("input", ()=>{ r.end=en.value; });
+
+      const del = mkBtn("✕", "btnSmall btnDanger smallX", ()=>{
+        localRanges.splice(idx,1);
+        if (!localRanges.length) localRanges.push({start:"", end:""});
+        renderLocalRanges();
+      });
+
+      const g = el("div","grid1");
+      g.appendChild(wrapField("開始", st));
+      g.appendChild(wrapField("終了", en));
+
+      const rr = el("div","row");
+      rr.style.justifyContent="space-between";
+      rr.appendChild(g);
+      rr.appendChild(del);
+
+      box.appendChild(rr);
+      rbox.appendChild(box);
+    });
+
+    rbox.appendChild(mkBtn("範囲を追加", "btnSmall", ()=>{
+      localRanges.push({start:"", end:""});
+      renderLocalRanges();
+    }));
+  }
+  renderLocalRanges();
+
+  body.appendChild(el("div","hr"));
+  body.appendChild(el("div","", "範囲"));
+  body.appendChild(rbox);
+
+  const btnSave = mkBtn("OK", "btnPrimary", ()=>{
+    t.durationMin = clamp(parseInt(dur.value||"30",10),1,2000);
+    t.perRangeMin = (prm.value ? clamp(parseInt(prm.value,10),1,300) : "");
+    t.ranges = localRanges.map(x=>({start:(x.start||"").trim(), end:(x.end||"").trim()}));
+    saveState();
+    closeModal();
+    render();
+  });
+
+  openModal("編集", body, [
+    mkBtn("キャンセル", "btnGhost", closeModal),
+    btnSave,
+  ]);
+}
+
 /* ===== render: timeline ===== */
 function renderTimeline() {
   tabTimeline.innerHTML = "";
 
-  const blocksAll = buildAllBlocksForWindow();
+  const blocks = buildAllBlocksForWindow();
+  const wrap = el("div","timelineWrap");
 
-  const dates = timelineDatesWindow(state.selectedDate);
-  const startDateS = dates[0];
-  const endDateS = addDaysStr(dates[dates.length - 1], 1);
-
-  const startMs = parseDateStr(startDateS).getTime();
-  const endMs = parseDateStr(endDateS).getTime();
-
-  const PPM = 1.4; // px per minute
-  const totalMin = Math.floor((endMs - startMs) / 60000);
-  const totalH = totalMin * PPM;
-
-  const wrap = el("div", "timelineWrap");
-  const grid = el("div", "tlGrid");
-
-  const colDates = el("div", "tlDates");
-  const colAxis = el("div", "tlAxis");
-  const colCanvas = el("div", "tlCanvas");
-
-  const datesInner = el("div", "tlInner");
-  const axisInner = el("div", "tlInner");
-  const canvasInner = el("div", "tlCanvasInner");
-
-  datesInner.style.height = `${totalH}px`;
-  axisInner.style.height = `${totalH}px`;
-  canvasInner.style.height = `${totalH}px`;
-
-  colDates.appendChild(datesInner);
-  colAxis.appendChild(axisInner);
-  colCanvas.appendChild(canvasInner);
-
-  grid.appendChild(colDates);
-  grid.appendChild(colAxis);
-  grid.appendChild(colCanvas);
-  wrap.appendChild(grid);
-  tabTimeline.appendChild(wrap);
-
-  const px = (min) => `${min * PPM}px`;
-
-  /* ===== 時間線 ===== */
-  for (let m = 0; m <= totalMin; m += 60) {
-    const line = el("div", "tlHourLine");
-    line.style.top = px(m);
-    if (m % 1440 === 0) line.classList.add("tlDayLine");
-    canvasInner.appendChild(line);
-  }
-  for (let m = 30; m <= totalMin; m += 60) {
-    const line = el("div", "tlHalfLine");
-    line.style.top = px(m);
-    canvasInner.appendChild(line);
-  }
-
-  /* ===== 時刻ラベル ===== */
-  for (let m = 0; m <= totalMin; m += 60) {
-    const hh = Math.floor((m % 1440) / 60);
-    const lab = el("div", "tlHourLabel", `${hh}:00`);
-    lab.style.top = px(m);
-    axisInner.appendChild(lab);
-  }
-
-  /* ===== 日付 ===== */
-  dates.forEach((dateS, i) => {
-    const yMin = i * 1440;
-    const d = parseDateStr(dateS);
-
-    const badge = el("div", "tlDateBadge");
-    badge.style.top = px(yMin);
-    badge.appendChild(el("div", "tlDateMD", fmtMD(d)));
-    badge.appendChild(el("div", "tlDateWD", weekdayJa(d)));
-
-    datesInner.appendChild(badge);
-  });
-
-  /* ===== NOWライン ===== */
   const nowMs = Date.now();
-  if (startMs <= nowMs && nowMs < endMs) {
-    const nowMin = (nowMs - startMs) / 60000;
-    const nowLine = el("div", "tlNowLine");
-    nowLine.style.top = px(nowMin);
-    nowLine.id = "nowAnchor";
-    canvasInner.appendChild(nowLine);
-  }
+  const dates = timelineDatesWindow(state.selectedDate);
 
-  /* ===== ブロック ===== */
-  const blocks = blocksAll
-    .filter(b => b.startMs < endMs && b.endMs > startMs)
-    .map(b => ({
-      ...b,
-      _dispStart: Math.max(b.startMs, startMs),
-      _dispEnd: Math.min(b.endMs, endMs),
-    }))
-    .sort((a, b) => a._dispStart - b._dispStart);
+  dates.forEach(dateS=>{
+    const row = el("div","dayRow");
+    const head = el("div","dayHead");
+    const d = parseDateStr(dateS);
+    head.appendChild(el("div","dayDate", fmtMD(d)));
+    head.appendChild(el("div","dayWday", weekdayJa(d)));
 
-  blocks.forEach(b => {
-    const stMin = (b._dispStart - startMs) / 60000;
-    const enMin = (b._dispEnd - startMs) / 60000;
+    const list = el("div","blocks");
 
-    const top = stMin * PPM;
-    const h = Math.max(18, (enMin - stMin) * PPM);
+    const dayStart = parseDateStr(dateS).getTime();
+    const dayEnd = dayStart + 24*60*60*1000;
+    const nowInThisDay = (dayStart <= nowMs && nowMs < dayEnd);
 
-    const card = el("div", "tlBlock");
-    card.style.top = `${top}px`;
-    card.style.height = `${h}px`;
-    if (h < 58) card.classList.add("isTiny");
+    // day overlap + display clip
+    const dayBlocks = blocks
+      .filter(b => b.startMs < dayEnd && b.endMs > dayStart)
+      .map(b => ({
+        ...b,
+        _dispStart: Math.max(b.startMs, dayStart),
+        _dispEnd: Math.min(b.endMs, dayEnd),
+      }))
+      .sort((a,b)=>a._dispStart - b._dispStart);
 
-    const bar = el("div", `bar ${b.kind === "study" ? (b.meta?.subjectColor || "gray") : "gray"}`);
-    card.appendChild(bar);
-
-    const topRow = el("div", "blockTop");
-    topRow.appendChild(el("div", "blockName", b.name));
-    topRow.appendChild(el("div", "blockTime", fmtRange(b._dispStart, b._dispEnd)));
-    card.appendChild(topRow);
-
-    if (b.kind === "study") {
-      const taskId = b.meta?.taskId;
-      const done = taskId ? isTaskComplete(taskId) : false;
-      card.appendChild(el("div", "blockTag", done ? "完了" : "勉強"));
+    if (!dayBlocks.length) {
+      if (nowInThisDay) {
+        const r = el("div","tRow");
+        const t = el("div","tTime", fmtHMM(nowMs));
+        const div = el("div","nowDivider");
+        div.id = "nowAnchor";
+        r.appendChild(t);
+        r.appendChild(div);
+        list.appendChild(r);
+      } else {
+        list.appendChild(el("div","note","（予定なし）"));
+      }
     } else {
-      card.appendChild(el("div", "blockTag", "生活"));
+      let insertedGapNow = false;
+      let insideNow = false;
+
+      const maybeInsertNowDivider = () => {
+        if (insertedGapNow || insideNow || !nowInThisDay) return;
+        const r = el("div","tRow");
+        const t = el("div","tTime", fmtHMM(nowMs));
+        const div = el("div","nowDivider");
+        div.id = "nowAnchor";
+        r.appendChild(t);
+        r.appendChild(div);
+        list.appendChild(r);
+        insertedGapNow = true;
+      };
+
+      for (const b of dayBlocks) {
+        if (!insideNow && nowInThisDay && nowMs < b._dispStart) {
+          maybeInsertNowDivider();
+        }
+
+        const trow = el("div","tRow");
+        const timeCol = el("div","tTime", fmtRange(b._dispStart, b._dispEnd));
+
+        const card = el("div","block");
+        const bar = el("div", `bar ${b.kind==="study" ? (b.meta?.subjectColor || "gray") : "gray"}`);
+        card.appendChild(bar);
+
+        const top = el("div","blockTop");
+        top.appendChild(el("div","blockName", b.name));
+        card.appendChild(top);
+
+        if (b.kind === "study") {
+          const taskId = b.meta?.taskId;
+          const done = taskId ? isTaskComplete(taskId) : false;
+          card.appendChild(el("div","blockTag", done ? "完了" : "勉強"));
+        } else {
+          card.appendChild(el("div","blockTag", "生活"));
+        }
+
+        // NOW inside this displayed segment -> dashed line in card
+        if (nowInThisDay && b._dispStart <= nowMs && nowMs < b._dispEnd) {
+          insideNow = true;
+          const frac = (nowMs - b._dispStart) / Math.max(1, (b._dispEnd - b._dispStart));
+          card.classList.add("isNow");
+          card.style.setProperty("--nowP", String(Math.max(0, Math.min(1, frac))));
+          card.id = "nowAnchor";
+        }
+
+        trow.appendChild(timeCol);
+        trow.appendChild(card);
+        list.appendChild(trow);
+
+        card.addEventListener("click", ()=>{
+          if (b.kind === "study") {
+            openRunner(b.meta.taskId, b._dispEnd);
+          } else {
+            const bd = el("div","grid1");
+            bd.appendChild(el("div","", b.name));
+            bd.appendChild(el("div","note", fmtRange(b._dispStart, b._dispEnd)));
+            openModal("確認", bd, [mkBtn("OK","btnPrimary",closeModal)]);
+          }
+        });
+      }
+
+      // now is after last block (gap)
+      if (nowInThisDay && !insideNow && !insertedGapNow) {
+        maybeInsertNowDivider();
+      }
     }
 
-    card.addEventListener("click", () => {
-      if (b.kind === "study") {
-        openRunner(b.meta.taskId, b._dispEnd);
-      } else {
-        const bd = el("div", "grid1");
-        bd.appendChild(el("div", "", b.name));
-        bd.appendChild(el("div", "note", fmtRange(b._dispStart, b._dispEnd)));
-        openModal("確認", bd, [mkBtn("OK", "btnPrimary", closeModal)]);
-      }
-    });
-
-    canvasInner.appendChild(card);
+    row.appendChild(head);
+    row.appendChild(list);
+    wrap.appendChild(row);
   });
 
+  tabTimeline.appendChild(wrap);
   scrollToNow();
 }
+
+function scrollToNow() {
+  const a = document.getElementById("nowAnchor");
+  if (a) a.scrollIntoView({ block:"center", behavior:"auto" });
+}
+
+nowBtn.addEventListener("click", ()=>{
+  setTab("timeline");
+  setTimeout(scrollToNow, 0);
+});
 
 /* ===== main render ===== */
 function render() {
